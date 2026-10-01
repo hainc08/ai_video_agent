@@ -130,6 +130,18 @@ def clip_path(data_dir: Path, job_id: str, scene_no: int) -> Path:
     return job_dir(data_dir, job_id) / "clips" / f"scene_{scene_no:02d}.mp4"
 
 
+def audio_path(data_dir: Path, job_id: str, scene_no: int) -> Path:
+    return job_dir(data_dir, job_id) / "audio" / f"scene_{scene_no:02d}.wav"
+
+
+def subtitles_path(data_dir: Path, job_id: str) -> Path:
+    return job_dir(data_dir, job_id) / "subtitles.ass"
+
+
+def final_path(data_dir: Path, job_id: str) -> Path:
+    return job_dir(data_dir, job_id) / "final.mp4"
+
+
 def append_log(data_dir: Path, job_id: str, tag: str, message: str) -> dict[str, str]:
     """Append one line to the job's log.jsonl and return it."""
     entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "tag": tag, "message": message}
@@ -181,6 +193,46 @@ def mark_approved(session: Session, job: Job) -> None:
 def mark_generated(session: Session, job: Job) -> None:
     job.status = JobStatus.assembling
     _save(session, job)
+
+
+def mark_done(session: Session, job: Job) -> None:
+    job.status = JobStatus.done
+    job.error = None
+    job.failed_step = None
+    _save(session, job)
+
+
+def mark_assembly_failed(session: Session, job: Job, message: str) -> None:
+    job.status = JobStatus.failed
+    job.failed_step = "assembling"
+    job.error = message
+    _save(session, job)
+
+
+def list_job_ids(session: Session, status: JobStatus) -> list[str]:
+    return [job.id for job in session.exec(select(Job).where(Job.status == status)).all()]
+
+
+def record_tts_cost(
+    session: Session,
+    job_id: str,
+    *,
+    provider: str,
+    chars: int,
+    price_usd_per_1k_chars: float,
+    detail: str,
+) -> None:
+    session.add(
+        CostEntry(
+            job_id=job_id,
+            kind="tts",
+            detail=f"{detail} ({provider})",
+            units=chars,
+            unit="chars",
+            usd=round(chars / 1000 * price_usd_per_1k_chars, 6),
+        )
+    )
+    session.commit()
 
 
 def mark_generation_failed(session: Session, job: Job, message: str) -> None:

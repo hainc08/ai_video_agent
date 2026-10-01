@@ -14,6 +14,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from app import jobstore
+from app.agent.finisher import Finisher, TTSFactory
 from app.agent.planner import PlannerBase, PlannerError
 from app.agent.qc import QCError, check_clip
 from app.config import Settings
@@ -81,12 +82,17 @@ class GenerationService:
         hub: EventHub,
         provider_factory: ProviderFactory,
         planner_factory: PlannerFactory,
+        tts_factory: TTSFactory | None = None,
     ) -> None:
         self._settings = settings
         self._engine = engine
         self._hub = hub
         self._provider_factory = provider_factory
         self._planner_factory = planner_factory
+        # Without a TTS factory the job stops at `assembling` (clips ready, nothing more is run).
+        self._finisher = (
+            Finisher(settings, engine, tts_factory, self._log) if tts_factory is not None else None
+        )
         # One limit for the whole process, across jobs (FR-08).
         self._slots = asyncio.Semaphore(settings.config.veo.max_concurrent)
         self._tasks: set[asyncio.Task[None]] = set()
@@ -103,9 +109,15 @@ class GenerationService:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def run(self, job_id: str) -> None:
-        """Generate every missing clip of a job that is in `generating`. Never raises."""
+        """Generate every missing clip of a job in `generating`, then finish it. Never raises.
+
+        A job already in `assembling` (clips done, e.g. after a restart) goes straight to the
+        voice-over and assembly step.
+        """
         try:
             await self._run(job_id)
+            if self._finisher is not None:
+                await self._finisher.run(job_id)  # does nothing unless the job is now `assembling`
         except Exception:
             # Whatever goes wrong, the job must leave "generating": the page waits until it does.
             log.exception("Unexpected error while generating job %s", job_id)

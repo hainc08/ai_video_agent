@@ -57,6 +57,8 @@ assembler:
   subtitle_font: "Be Vietnam Pro"
   music_dir: assets/music
   logo_path: assets/logo.png
+  fonts_dir: assets/fonts         # font cho phụ đề; thiếu thì dùng font hệ thống
+  x264_preset: medium             # ultrafast … veryslow: nhanh hơn thì file lớn hơn
   est_assembly_sec: 90            # ước lượng thời gian TTS + ghép video
 
 storage:

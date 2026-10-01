@@ -82,6 +82,8 @@ class AssemblerConfig(_Section):
     subtitle_font: str = "Be Vietnam Pro"
     music_dir: str = "assets/music"
     logo_path: str = "assets/logo.png"
+    fonts_dir: str = "assets/fonts"  # extra fonts for subtitles (e.g. Be Vietnam Pro)
+    x264_preset: str = "medium"
     est_assembly_sec: int = Field(default=90, ge=0)
 
 
