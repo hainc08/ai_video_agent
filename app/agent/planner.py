@@ -1,6 +1,8 @@
 """Claude planner: idea -> validated Plan, through the strict `submit_plan` tool."""
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +36,10 @@ class PlannerError(Exception):
 
 class PlannerRefusedError(PlannerError):
     """Claude declined the request (stop_reason == "refusal")."""
+
+
+class PlanMergeError(Exception):
+    """A structurally valid reply could not be merged into the plan being edited."""
 
 
 @dataclass(frozen=True)
@@ -81,6 +87,17 @@ def build_tool() -> dict[str, Any]:
     }
 
 
+def _plan_json(plan: Plan) -> str:
+    return json.dumps(plan.to_dict(), ensure_ascii=False, indent=2)
+
+
+def _keep_target_note(plan: Plan) -> str:
+    return (
+        f"Giữ nguyên thời lượng mục tiêu {plan.target.duration_sec} giây "
+        f"và tỉ lệ {plan.target.aspect}."
+    )
+
+
 class Planner:
     def __init__(self, client: Any, config: ClaudeConfig, system_prompt: str) -> None:
         self._client = client
@@ -102,7 +119,51 @@ class Planner:
         )
         return await self._run(prompt, duration_sec=options.duration_sec, aspect=options.aspect)
 
-    async def _run(self, prompt: str, *, duration_sec: int, aspect: str) -> PlannerResult:
+    async def revise(self, plan: Plan, feedback: str) -> PlannerResult:
+        feedback = feedback.strip()
+        if not feedback:
+            raise ValueError("feedback must not be empty")
+        prompt = (
+            f"Đây là plan hiện tại:\n<plan>\n{_plan_json(plan)}\n</plan>\n\n"
+            f"Góp ý của người dùng:\n<feedback>{feedback}</feedback>\n\n"
+            "Sửa plan theo góp ý, giữ nguyên những phần không bị nhắc đến. "
+            f"{_keep_target_note(plan)} Sau đó gọi tool {TOOL_NAME} với plan đầy đủ."
+        )
+        return await self._run(prompt, duration_sec=plan.target.duration_sec, aspect=plan.target.aspect)
+
+    async def rewrite_scene(self, plan: Plan, scene_id: int, feedback: str = "") -> PlannerResult:
+        if scene_id not in {scene.id for scene in plan.scenes}:
+            raise ValueError(f"scene {scene_id} is not in the plan")
+        feedback = feedback.strip() or "Viết lại cảnh này theo một hướng khác, hay hơn."
+        prompt = (
+            f"Đây là plan hiện tại:\n<plan>\n{_plan_json(plan)}\n</plan>\n\n"
+            f"Chỉ viết lại cảnh {scene_id}, giữ nguyên thời lượng của cảnh đó và mọi phần khác của plan.\n"
+            f"Yêu cầu:\n<feedback>{feedback}</feedback>\n\n"
+            f"Sau đó gọi tool {TOOL_NAME} với plan đầy đủ."
+        )
+
+        def keep_only_rewritten_scene(candidate: Plan) -> Plan:
+            rewritten = next((scene for scene in candidate.scenes if scene.id == scene_id), None)
+            if rewritten is None:
+                raise PlanMergeError(f"scene {scene_id} is missing from the submitted plan")
+            scenes = [rewritten if scene.id == scene_id else scene for scene in plan.scenes]
+            return plan.model_copy(update={"scenes": scenes})
+
+        return await self._run(
+            prompt,
+            duration_sec=plan.target.duration_sec,
+            aspect=plan.target.aspect,
+            finalize=keep_only_rewritten_scene,
+        )
+
+    async def _run(
+        self,
+        prompt: str,
+        *,
+        duration_sec: int,
+        aspect: str,
+        finalize: Callable[[Plan], Plan] | None = None,
+    ) -> PlannerResult:
         messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         calls = input_tokens = output_tokens = 0
         errors: list[str] = []
@@ -139,7 +200,7 @@ class Planner:
                 )
                 continue
 
-            plan, errors = self._check(tool_uses[0].input, duration_sec, aspect)
+            plan, errors = self._check(tool_uses[0].input, duration_sec, aspect, finalize)
             if plan is not None:
                 return PlannerResult(
                     plan=plan,
@@ -168,13 +229,23 @@ class Planner:
             output_tokens=output_tokens,
         )
 
-    def _check(self, raw: Any, duration_sec: int, aspect: str) -> tuple[Plan | None, list[str]]:
+    def _check(
+        self,
+        raw: Any,
+        duration_sec: int,
+        aspect: str,
+        finalize: Callable[[Plan], Plan] | None = None,
+    ) -> tuple[Plan | None, list[str]]:
         try:
             plan = Plan.model_validate(raw)
+            if finalize is not None:
+                plan = finalize(plan)
         except ValidationError as exc:
             return None, [
                 f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()
             ]
+        except PlanMergeError as exc:
+            return None, [str(exc)]
         errors = validate_plan(plan, duration_sec=duration_sec, aspect=aspect)
         return (None, errors) if errors else (plan, [])
 
