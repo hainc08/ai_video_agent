@@ -18,11 +18,11 @@ Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật d
 - [x] Test với Claude được mock (fixture JSON mẫu)
 
 ## Giai đoạn 2 — Giao diện màn 1 & 2
-- [ ] Template base + header 4 bước theo `docs/UI_SPEC.md` và mockup
-- [ ] Màn 1: form ý tưởng → `POST /api/jobs` → redirect `/jobs/{id}`
-- [ ] Trạng thái "Claude đang lập plan…" (HTMX poll hoặc SSE)
-- [ ] Màn 2: brief, danh sách cảnh, sửa inline, viết lại cảnh, góp ý viết lại plan, ước tính, nút duyệt
-- [ ] Khóa nút duyệt khi vượt trần
+- [x] Template base + header 4 bước theo `docs/UI_SPEC.md` và mockup
+- [x] Màn 1: form ý tưởng → `POST /api/jobs` → redirect `/jobs/{id}`
+- [x] Trạng thái "Claude đang lập plan…" (HTMX poll hoặc SSE)
+- [x] Màn 2: brief, danh sách cảnh, sửa inline, viết lại cảnh, góp ý viết lại plan, ước tính, nút duyệt
+- [x] Khóa nút duyệt khi vượt trần
 
 ## Giai đoạn 3 — Sinh video
 - [ ] `providers/base.py`: `VideoProvider` protocol

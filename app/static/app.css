@@ -56,13 +56,16 @@ p { margin: 0; }
 }
 .header-meta { font-size: 13px; color: var(--text-muted); }
 
-.steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 28px; font-size: 14px; }
 .step {
+  position: relative;
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--text-muted);
 }
-.step + .step::before { content: ""; width: 20px; height: 1px; background: var(--line); margin-left: -36px; margin-right: 22px; }
+/* connector line in the gap before each step after the first */
+.step + .step::before { content: ""; position: absolute; left: -25px; top: 50%; width: 20px; height: 1px; background: var(--line); }
+.step.done + .step::before { background: var(--accent); }
 .step-dot {
   width: 20px; height: 20px; border-radius: 999px;
   border: 1px solid var(--line);
@@ -72,7 +75,6 @@ p { margin: 0; }
 .step.current .step-dot { background: var(--surface); border-color: var(--surface); color: var(--text); }
 .step.done { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .step.done .step-dot { background: var(--accent); border-color: var(--accent); color: var(--surface); }
-.steps { gap: 28px; }
 
 /* Banners */
 .banner-warn, .flash, .warn-box {
@@ -205,9 +207,12 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
   .site-header { padding: 12px 20px; }
   .steps { display: none; }
   main { padding: 20px; }
-  .layout { flex-direction: column; }
+  /* stretch: with flex-start a column item is as wide as its longest unwrapped line */
+  .layout { flex-direction: column; align-items: stretch; }
   .side { width: 100%; }
   .brief, .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scene { flex-wrap: wrap; }
+  .scene-no { width: auto; flex: 1; }
+  .scene-body { flex-basis: 100%; order: 3; }
   .banner-warn, .flash { margin: 16px 20px 0; }
 }
