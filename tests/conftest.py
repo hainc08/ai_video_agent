@@ -1,3 +1,4 @@
+import json
 import shutil
 
 import pytest
@@ -29,3 +30,9 @@ def project_root(tmp_path):
 @pytest.fixture
 def settings(project_root):
     return load_settings(project_root)
+
+
+@pytest.fixture
+def plan_dict():
+    path = PROJECT_ROOT / "tests" / "fixtures" / "plan_30s.json"
+    return json.loads(path.read_text(encoding="utf-8"))

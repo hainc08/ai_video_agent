@@ -1,0 +1,60 @@
+{
+  "idea": "5 việc sếp không biết bạn đang làm bằng AI",
+  "target": { "duration_sec": 30, "aspect": "9:16", "platform": "facebook_reels" },
+  "brief": {
+    "audience": "Dân văn phòng 25–40 tuổi muốn làm việc nhanh hơn nhờ AI",
+    "key_message": "AI giúp bạn xử lý việc lặp lại trong vài giây",
+    "hook": "Sếp không hề biết bạn đang dùng AI làm năm việc này.",
+    "cta": "Theo dõi kênh để xem thêm mẹo AI"
+  },
+  "style_guide": "Clean corporate office, soft daylight, muted blue palette, smooth handheld camera, shallow depth of field.",
+  "scenes": [
+    {
+      "id": 1,
+      "duration_sec": 6,
+      "voiceover_vi": "Sếp không hề biết bạn đang dùng AI làm năm việc này mỗi ngày ở công ty.",
+      "subtitle_vi": "5 việc sếp không biết bạn làm bằng AI",
+      "visual": "Nhân viên văn phòng mỉm cười trước laptop, sếp đi ngang phía sau",
+      "camera": "Trung cảnh, đẩy máy chậm vào nhân vật",
+      "veo_prompt_en": "Vertical shot of a young office worker smiling slightly at a laptop at a tidy desk while a manager walks past out of focus in the background, soft daylight from large windows, slow push-in, no on-screen text, no logos"
+    },
+    {
+      "id": 2,
+      "duration_sec": 6,
+      "voiceover_vi": "Việc một: để AI tóm tắt email dài thành ba ý chính chỉ trong vài giây.",
+      "subtitle_vi": "1. Tóm tắt email dài trong vài giây",
+      "visual": "Cận cảnh bàn tay gõ phím, màn hình mờ phía sau",
+      "camera": "Cận cảnh, lia nhẹ từ trái sang phải",
+      "veo_prompt_en": "Vertical close-up of hands typing on a laptop keyboard, the screen softly out of focus, a coffee cup beside it, muted blue palette, gentle left-to-right pan, no on-screen text, no logos"
+    },
+    {
+      "id": 3,
+      "duration_sec": 6,
+      "voiceover_vi": "Việc hai: nhờ AI viết nháp báo cáo tuần, bạn chỉ cần sửa lại số liệu.",
+      "subtitle_vi": "2. Viết nháp báo cáo tuần",
+      "visual": "Chồng giấy báo cáo trên bàn, người nhân viên thư thả uống cà phê",
+      "camera": "Trung cảnh, máy tĩnh",
+      "veo_prompt_en": "Vertical medium shot of a relaxed office worker sipping coffee next to a neat stack of printed reports, soft daylight, static camera, shallow depth of field, no on-screen text, no logos"
+    },
+    {
+      "id": 4,
+      "duration_sec": 6,
+      "voiceover_vi": "Việc ba: biến ghi chú cuộc họp lộn xộn thành danh sách việc cần làm rõ ràng.",
+      "subtitle_vi": "3. Biến ghi chú họp thành việc cần làm",
+      "visual": "Sổ tay viết nguệch ngoạc cạnh laptop trong phòng họp",
+      "camera": "Cận cảnh từ trên xuống, kéo máy ra chậm",
+      "veo_prompt_en": "Vertical top-down close-up of a notebook with messy handwritten scribbles beside a laptop on a meeting room table, soft daylight, slow pull-back, no on-screen text, no logos"
+    },
+    {
+      "id": 5,
+      "duration_sec": 6,
+      "voiceover_vi": "Còn hai việc nữa ở phần sau. Theo dõi kênh để không bỏ lỡ mẹo AI mới.",
+      "subtitle_vi": "Theo dõi để xem 2 việc còn lại",
+      "visual": "Nhân viên đóng laptop, đứng dậy rời bàn với vẻ hài lòng",
+      "camera": "Toàn cảnh, máy lùi nhẹ",
+      "veo_prompt_en": "Vertical wide shot of an office worker closing a laptop and standing up from the desk with a satisfied look, warm late-afternoon light, gentle dolly back, no on-screen text, no logos"
+    }
+  ],
+  "caption_vi": "5 việc AI làm thay bạn mỗi ngày ở văn phòng. Bạn đã thử việc nào rồi?",
+  "music_mood": "upbeat corporate"
+}
