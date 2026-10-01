@@ -163,3 +163,73 @@ async def test_shutdown_cancels_work_that_is_still_running(settings, engine):
 
     # Still "planning": the next startup's recover_interrupted() resolves it.
     assert load(engine, job_id)[0].status == JobStatus.planning
+
+
+class MeddlingPlanner:
+    """While "Claude is thinking", something else changes the job (an approve, a cancel, a delete)."""
+
+    def __init__(self, engine, job_id, outcome, *, delete=False):
+        self._engine, self._job_id, self._outcome, self._delete = engine, job_id, outcome, delete
+
+    async def revise(self, plan, feedback):
+        with Session(self._engine) as session:
+            job = jobstore.get_job(session, self._job_id)
+            if self._delete:
+                session.delete(job)
+            else:
+                job.status = JobStatus.generating
+                session.add(job)
+            session.commit()
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self._outcome
+
+
+async def test_a_result_for_a_job_that_moved_on_is_dropped_but_its_cost_is_kept(settings, engine, plan_dict):
+    revised = copy.deepcopy(plan_dict)
+    revised["brief"]["cta"] = "Lưu video để xem lại"
+    job_id = seed_job(engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.planning)
+    planner = MeddlingPlanner(engine, job_id, planner_result(revised))
+    service = PlanningService(settings, engine, lambda: planner)
+
+    await service.revise(job_id, "Đổi CTA")
+
+    job, plan, costs = load(engine, job_id)
+    assert (job.status, job.plan_version) == (JobStatus.generating, 1)
+    assert plan.to_dict() == plan_dict
+    assert sorted(cost.units for cost in costs) == [1000, 2000]
+
+
+async def test_a_failure_for_a_job_that_moved_on_does_not_change_it(settings, engine, plan_dict):
+    job_id = seed_job(engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.planning)
+    planner = MeddlingPlanner(engine, job_id, PlannerError("Claude từ chối", input_tokens=50))
+    service = PlanningService(settings, engine, lambda: planner)
+
+    await service.revise(job_id, "Đổi CTA")
+
+    job, _, _ = load(engine, job_id)
+    assert (job.status, job.error) == (JobStatus.generating, None)
+
+
+async def test_a_job_deleted_while_planning_does_not_crash_the_task(settings, engine, plan_dict):
+    job_id = seed_job(engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.planning)
+    planner = MeddlingPlanner(engine, job_id, PlannerError("Claude từ chối"), delete=True)
+    service = PlanningService(settings, engine, lambda: planner)
+
+    await service.revise(job_id, "Đổi CTA")  # must not raise
+
+    with Session(engine) as session:
+        assert jobstore.get_job(session, job_id) is None
+
+
+async def test_a_stored_plan_that_no_longer_loads_does_not_leave_the_job_planning(settings, engine, plan_dict):
+    service, planner = make_service(settings, engine, planner_result(plan_dict))
+    job_id = seed_job(engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.planning, plan_json="{not json")
+
+    await service.revise(job_id, "Đổi CTA")
+
+    with Session(engine) as session:
+        job = jobstore.get_job(session, job_id)
+        assert job.status != JobStatus.planning
+        assert "Lỗi không mong muốn" in job.error
+    assert planner.calls == []

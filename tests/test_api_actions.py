@@ -1,11 +1,15 @@
+import asyncio
 import copy
 
 import pytest
+from sqlmodel import Session
 
+from app import jobstore
 from app.agent.planner import PlannerError
+from app.main import create_app
 from app.models import JobStatus
 from app.schemas import Plan
-from tests.fakes import planner_result
+from tests.fakes import FakePlanner, planner_result
 from tests.helpers import seed_job, wait_until_planned
 
 ACTIONS = [
@@ -236,3 +240,98 @@ def test_approve_is_refused_when_the_veo_price_is_not_configured(start_app, sett
     assert response.status_code == 409
     assert "veo.price_usd_per_second" in response.json()["detail"]
     assert detail(client, job_id)["status"] == "awaiting_approval"
+
+
+# --- two actions racing on the same job -------------------------------------------
+
+
+async def _late_body_request(app, method, path, body, gate):
+    """Call the ASGI app with a body that only arrives once `gate` is set."""
+    sent = []
+
+    async def receive():
+        await gate.wait()
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"content-type", b"application/x-www-form-urlencoded"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "app": app,
+    }
+    await app(scope, receive, send)
+    return next(message["status"] for message in sent if message["type"] == "http.response.start")
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        (("POST", "revise", b"feedback=A"), ("POST", "revise", b"feedback=B")),
+        (("POST", "scenes/2/rewrite", b""), ("POST", "scenes/3/rewrite", b"")),
+        (("POST", "revise", b"feedback=A"), ("PATCH", "scenes/1", b"visual=sua+tay")),
+    ],
+    ids=["revise-revise", "rewrite-rewrite", "revise-edit"],
+)
+async def test_two_actions_arriving_together_cannot_both_change_the_job(settings, plan_dict, first, second):
+    planner = FakePlanner(planner_result(plan_dict), planner_result(plan_dict))
+    app = create_app(settings, planner_factory=lambda: planner)
+    async with app.router.lifespan_context(app):
+        job_id = seed_job(app.state.engine, settings.data_dir, plan_dict=plan_dict)
+        gate = asyncio.Event()
+        requests = [
+            asyncio.create_task(_late_body_request(app, method, f"/api/jobs/{job_id}/{path}", body, gate))
+            for method, path, body in (first, second)
+        ]
+        await asyncio.sleep(0.05)  # both requests are now waiting for their body
+        gate.set()
+        statuses = await asyncio.gather(*requests)
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            with Session(app.state.engine) as session:
+                job = jobstore.get_job(session, job_id)
+                if job.status != JobStatus.planning:
+                    break
+
+        assert sorted(statuses) == [200, 409]
+        assert len(planner.calls) <= 1
+        assert job.status == JobStatus.awaiting_approval
+        assert job.plan_version == 2
+
+
+async def test_an_edit_that_lands_just_before_a_revise_is_what_claude_revises(settings, plan_dict):
+    planner = FakePlanner(planner_result(plan_dict))
+    app = create_app(settings, planner_factory=lambda: planner)
+    async with app.router.lifespan_context(app):
+        job_id = seed_job(app.state.engine, settings.data_dir, plan_dict=plan_dict)
+        gate = asyncio.Event()
+        edit = asyncio.create_task(
+            _late_body_request(app, "PATCH", f"/api/jobs/{job_id}/scenes/1", b"visual=sua+tay", gate)
+        )
+        revise = asyncio.create_task(
+            _late_body_request(app, "POST", f"/api/jobs/{job_id}/revise", b"feedback=B", gate)
+        )
+        await asyncio.sleep(0.05)
+        gate.set()
+        statuses = await asyncio.gather(edit, revise)
+        await asyncio.sleep(0.2)
+
+    # The edit is saved first, so the revise starts from the edited plan instead of silently undoing it.
+    assert statuses == [200, 200]
+    (call,) = planner.calls
+    assert call[0] == "revise"
+    assert call[1].scenes[0].visual == "sua tay"

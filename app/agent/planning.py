@@ -12,7 +12,7 @@ from sqlmodel import Session
 from app import jobstore
 from app.agent.planner import PlanOptions, Planner, PlannerError, PlannerResult
 from app.config import Settings
-from app.models import Job
+from app.models import Job, JobStatus
 from app.options import style_prompt
 from app.schemas import Plan
 
@@ -65,15 +65,17 @@ class PlanningService:
         await self._run(job_id, "rewrite_scene", call)
 
     async def _run(self, job_id: str, action: str, call: _PlannerCall) -> None:
-        with Session(self._engine) as session:
-            job = jobstore.get_job(session, job_id)
-            if job is None:
-                return
-            plan = jobstore.load_plan(job)
         claude = self._settings.config.claude
+        version: int | None = None
 
         # Whatever goes wrong, the job must leave "planning": the page polls until it does.
         try:
+            with Session(self._engine) as session:
+                job = jobstore.get_job(session, job_id)
+                if job is None:
+                    return
+                version = job.plan_version
+                plan = jobstore.load_plan(job)
             planner = self._planner_factory()
             result = await call(planner, job, plan)
             with Session(self._engine) as session:
@@ -81,18 +83,52 @@ class PlanningService:
                     session, job_id, action=action, model=result.model,
                     input_tokens=result.input_tokens, output_tokens=result.output_tokens, config=claude,
                 )
-                jobstore.save_plan(session, self._settings.data_dir, jobstore.get_job(session, job_id), result.plan)
+                waiting = self._still_waiting(session, job_id, version)
+                if waiting is not None:
+                    jobstore.save_plan(session, self._settings.data_dir, waiting, result.plan)
         except PlannerError as exc:
-            self._fail(job_id, action, str(exc), exc.input_tokens, exc.output_tokens)
+            self._fail(job_id, action, version, str(exc), exc.input_tokens, exc.output_tokens)
         except Exception:
             log.exception("Unexpected error while planning job %s", job_id)
-            self._fail(job_id, action, "Lỗi không mong muốn khi lập plan. Xem log của máy chủ để biết chi tiết.")
-
-    def _fail(self, job_id: str, action: str, message: str, input_tokens: int = 0, output_tokens: int = 0) -> None:
-        claude = self._settings.config.claude
-        with Session(self._engine) as session:
-            jobstore.record_claude_usage(
-                session, job_id, action=action, model=claude.model,
-                input_tokens=input_tokens, output_tokens=output_tokens, config=claude,
+            self._fail(
+                job_id, action, version,
+                "Lỗi không mong muốn khi lập plan. Xem log của máy chủ để biết chi tiết.",
             )
-            jobstore.mark_planning_failed(session, jobstore.get_job(session, job_id), message)
+
+    def _still_waiting(self, session: Session, job_id: str, version: int | None) -> Job | None:
+        """The job, if it is still waiting for the plan this task was started for.
+
+        While Claude was working the job may have been approved, cancelled, edited or deleted;
+        writing a late result over that would undo what the user did.
+        """
+        job = jobstore.get_job(session, job_id)
+        if job is None or job.status != JobStatus.planning:
+            log.warning("Dropping a planning result for job %s: it is no longer planning", job_id)
+            return None
+        if version is not None and job.plan_version != version:
+            log.warning("Dropping a planning result for job %s: its plan changed meanwhile", job_id)
+            return None
+        return job
+
+    def _fail(
+        self,
+        job_id: str,
+        action: str,
+        version: int | None,
+        message: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        claude = self._settings.config.claude
+        try:
+            with Session(self._engine) as session:
+                jobstore.record_claude_usage(
+                    session, job_id, action=action, model=claude.model,
+                    input_tokens=input_tokens, output_tokens=output_tokens, config=claude,
+                )
+                waiting = self._still_waiting(session, job_id, version)
+                if waiting is not None:
+                    jobstore.mark_planning_failed(session, waiting, message)
+        except Exception:
+            # Last resort: startup recovery (recover_interrupted) will resolve the job.
+            log.exception("Could not record the planning failure for job %s", job_id)

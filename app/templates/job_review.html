@@ -67,7 +67,7 @@
     <div class="warn-box" role="alert">{{ estimate_error }}</div>
     {% endif %}
   </div>
-  <form class="card stack" hx-post="/api/jobs/{{ job.id }}/revise" hx-swap="none">
+  <form class="card stack" hx-post="/api/jobs/{{ job.id }}/revise" hx-swap="none" hx-disabled-elt="find button">
     <label class="card-title" for="feedback">Góp ý cho Claude</label>
     <textarea id="feedback" name="feedback" rows="3" required maxlength="2000" placeholder="Ví dụ: hook mạnh hơn, cảnh 3 dùng bảng tính Excel"></textarea>
     <button type="submit" class="btn-outline">Yêu cầu viết lại plan</button>

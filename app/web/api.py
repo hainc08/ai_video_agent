@@ -92,9 +92,11 @@ def _changed(request: Request, session: Session, job: Job) -> JSONResponse:
 
 @router.post("/jobs/{job_id}/revise")
 async def revise_plan(request: Request, job_id: str, session: Session = Depends(get_session)):
+    # Read the body first: nothing may be awaited between checking the job's state and changing it,
+    # or a second request could pass the same check in between.
+    feedback = str((await request.form()).get("feedback") or "").strip()
     job = job_or_404(session, job_id)
     _reviewable_plan(job)
-    feedback = str((await request.form()).get("feedback") or "").strip()
     if not feedback:
         raise HTTPException(status_code=422, detail="Hãy nhập góp ý cho Claude trước khi yêu cầu viết lại.")
     if len(feedback) > MAX_FEEDBACK_CHARS:
@@ -107,10 +109,12 @@ async def revise_plan(request: Request, job_id: str, session: Session = Depends(
 
 @router.patch("/jobs/{job_id}/scenes/{scene_no}")
 async def edit_scene(request: Request, job_id: str, scene_no: int, session: Session = Depends(get_session)):
+    # Read the body first: nothing may be awaited between checking the job's state and changing it,
+    # or a second request could pass the same check in between.
+    form = await request.form()
     job = job_or_404(session, job_id)
     plan = _reviewable_plan(job)
     _scene_or_404(plan, scene_no)
-    form = await request.form()
 
     data = plan.to_dict()
     scene = next(item for item in data["scenes"] if item["id"] == scene_no)
@@ -140,10 +144,12 @@ async def edit_scene(request: Request, job_id: str, scene_no: int, session: Sess
 
 @router.post("/jobs/{job_id}/scenes/{scene_no}/rewrite")
 async def rewrite_scene(request: Request, job_id: str, scene_no: int, session: Session = Depends(get_session)):
+    # Read the body first: nothing may be awaited between checking the job's state and changing it,
+    # or a second request could pass the same check in between.
+    feedback = str((await request.form()).get("feedback") or "").strip()[:MAX_FEEDBACK_CHARS]
     job = job_or_404(session, job_id)
     plan = _reviewable_plan(job)
     _scene_or_404(plan, scene_no)
-    feedback = str((await request.form()).get("feedback") or "").strip()[:MAX_FEEDBACK_CHARS]
     jobstore.mark_planning(session, job)
     planning = request.app.state.planning
     planning.spawn(planning.rewrite_scene(job.id, scene_no, feedback))
