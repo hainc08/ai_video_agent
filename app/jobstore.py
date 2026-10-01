@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import Session, desc, select
@@ -14,6 +15,9 @@ from app.models import CostEntry, Job, JobStatus, Scene
 from app.schemas import Plan
 
 INTERRUPTED_MESSAGE = "Việc lập plan bị gián đoạn vì máy chủ khởi động lại. Hãy thử lại."
+GENERATION_INTERRUPTED_MESSAGE = (
+    "Việc sinh video bị gián đoạn vì máy chủ khởi động lại. Các clip đã xong vẫn được giữ."
+)
 
 
 def _save(session: Session, job: Job) -> None:
@@ -69,7 +73,8 @@ def load_plan(job: Job) -> Plan | None:
     return Plan.model_validate(json.loads(job.plan_json))
 
 
-def save_plan(session: Session, data_dir: Path, job: Job, plan: Plan) -> None:
+def _store_plan_version(data_dir: Path, job: Job, plan: Plan) -> None:
+    """Write the next plan version to disk and set it on the job (not committed here)."""
     data = plan.to_dict()
     version = job.plan_version + 1
 
@@ -80,16 +85,74 @@ def save_plan(session: Session, data_dir: Path, job: Job, plan: Plan) -> None:
     (folder / f"plan.v{version}.json").write_text(text, encoding="utf-8")
     (folder / "plan.json").write_text(text, encoding="utf-8")
 
+    job.plan_json = json.dumps(data, ensure_ascii=False)
+    job.plan_version = version
+
+
+def save_plan(session: Session, data_dir: Path, job: Job, plan: Plan) -> None:
+    """A new plan for review: fresh scene rows, job back to awaiting_approval."""
+    _store_plan_version(data_dir, job, plan)
     for row in list_scenes(session, job.id):
         session.delete(row)
     for scene in plan.scenes:
         session.add(Scene(job_id=job.id, scene_no=scene.id))
-    job.plan_json = json.dumps(data, ensure_ascii=False)
-    job.plan_version = version
     job.status = JobStatus.awaiting_approval
     job.error = None
     job.failed_step = None
     _save(session, job)
+
+
+def update_plan(session: Session, data_dir: Path, job: Job, plan: Plan) -> None:
+    """A new plan version while the job is running (a scene's prompt was rewritten).
+
+    Unlike save_plan, the job's status and its scene rows — which track generation — are kept.
+    """
+    _store_plan_version(data_dir, job, plan)
+    _save(session, job)
+
+
+def get_scene(session: Session, job_id: str, scene_no: int) -> Scene | None:
+    return session.exec(select(Scene).where(Scene.job_id == job_id, Scene.scene_no == scene_no)).first()
+
+
+def set_scene(session: Session, job_id: str, scene_no: int, **changes: Any) -> Scene:
+    scene = get_scene(session, job_id, scene_no)
+    if scene is None:
+        raise LookupError(f"job {job_id} has no scene {scene_no}")
+    for name, value in changes.items():
+        setattr(scene, name, value)
+    session.add(scene)
+    session.commit()
+    return scene
+
+
+def clip_path(data_dir: Path, job_id: str, scene_no: int) -> Path:
+    return job_dir(data_dir, job_id) / "clips" / f"scene_{scene_no:02d}.mp4"
+
+
+def append_log(data_dir: Path, job_id: str, tag: str, message: str) -> dict[str, str]:
+    """Append one line to the job's log.jsonl and return it."""
+    entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "tag": tag, "message": message}
+    folder = job_dir(data_dir, job_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "log.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
+def read_log(data_dir: Path, job_id: str, limit: int = 200) -> list[dict[str, str]]:
+    path = job_dir(data_dir, job_id) / "log.jsonl"
+    if not path.exists():
+        return []
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a line cut short by a crash must not hide the rest of the log
+        if isinstance(entry, dict) and {"ts", "tag", "message"} <= entry.keys():
+            entries.append(entry)
+    return entries[-limit:]
 
 
 def mark_planning(session: Session, job: Job) -> None:
@@ -111,7 +174,43 @@ def mark_planning_failed(session: Session, job: Job, message: str) -> None:
 
 def mark_approved(session: Session, job: Job) -> None:
     job.status = JobStatus.generating
+    job.error = None  # e.g. the message left by a failed rewrite before the user approved
     _save(session, job)
+
+
+def mark_generated(session: Session, job: Job) -> None:
+    job.status = JobStatus.assembling
+    _save(session, job)
+
+
+def mark_generation_failed(session: Session, job: Job, message: str) -> None:
+    job.status = JobStatus.failed
+    job.failed_step = "generating"
+    job.error = message
+    _save(session, job)
+
+
+def record_video_cost(
+    session: Session,
+    job_id: str,
+    *,
+    provider: str,
+    model: str,
+    seconds: int,
+    price_usd_per_second: float,
+    detail: str,
+) -> None:
+    session.add(
+        CostEntry(
+            job_id=job_id,
+            kind=provider,
+            detail=f"{detail} ({model})",
+            units=seconds,
+            unit="seconds",
+            usd=round(seconds * price_usd_per_second, 6),
+        )
+    )
+    session.commit()
 
 
 def record_llm_usage(
@@ -144,7 +243,12 @@ def job_cost_usd(session: Session, job_id: str) -> float:
 
 
 def recover_interrupted(session: Session) -> int:
-    jobs = session.exec(select(Job).where(Job.status == JobStatus.planning)).all()
-    for job in jobs:
+    """Resolve jobs whose background task died with the previous server process."""
+    planning = session.exec(select(Job).where(Job.status == JobStatus.planning)).all()
+    for job in planning:
         mark_planning_failed(session, job, INTERRUPTED_MESSAGE)
-    return len(jobs)
+    # Not resumed automatically: restarting would spend money the user did not ask to spend again.
+    generating = session.exec(select(Job).where(Job.status == JobStatus.generating)).all()
+    for job in generating:
+        mark_generation_failed(session, job, GENERATION_INTERRUPTED_MESSAGE)
+    return len(planning) + len(generating)
