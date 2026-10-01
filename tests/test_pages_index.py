@@ -18,7 +18,7 @@ def test_form_posts_to_the_api_with_the_defaults_selected(start_app):
     assert 'id="duration-30" value="30" checked>' in text
     assert 'id="duration-15" value="15">' in text
     assert 'id="aspect-1" value="9:16" checked>' in text
-    assert '<option value="vi-female-north" selected>Nữ · miền Bắc</option>' in text
+    assert '<option value="vi-female-north" selected>Nữ (Hoài My)</option>' in text
     assert '<option value="office" selected>Văn phòng · chuyên nghiệp</option>' in text
     assert 'name="cost_cap_usd" value="5"' in text
     assert "Lập kế hoạch" in text

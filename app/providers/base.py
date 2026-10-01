@@ -1,4 +1,4 @@
-"""The contract every video provider implements (REQUIREMENTS §5)."""
+"""The contracts video and TTS providers implement (REQUIREMENTS §5)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -50,6 +50,17 @@ class VideoProvider(Protocol):
 
     async def download(self, operation_id: str, path: Path) -> None:
         """Write the finished clip to `path` (creating its folder)."""
+
+
+class TTSProvider(Protocol):
+    name: str
+    price_usd_per_1k_chars: float
+
+    async def synthesize(self, text: str, voice: str, path: Path) -> None:
+        """Write the spoken text to `path` (any format FFmpeg reads), creating its folder.
+
+        `voice` is one of the app's voice keys (app.options.VOICES). Raises ProviderError.
+        """
 
 
 def frame_size(aspect: str) -> tuple[int, int]:

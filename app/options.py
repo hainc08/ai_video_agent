@@ -6,11 +6,14 @@ from app.config import AppConfig
 DURATIONS = (15, 30, 60)
 ASPECTS = ("9:16", "1:1", "16:9")
 
+# The two Vietnamese voices the TTS service has. The keys predate that choice and are kept
+# so jobs already stored keep resolving.
 VOICES: dict[str, str] = {
-    "vi-female-north": "Nữ · miền Bắc",
-    "vi-male-north": "Nam · miền Bắc",
-    "vi-female-south": "Nữ · miền Nam",
+    "vi-female-north": "Nữ (Hoài My)",
+    "vi-male-north": "Nam (Nam Minh)",
 }
+# Voices the form once offered, shown under the voice that now reads them.
+_RETIRED_VOICES = {"vi-female-south": "vi-female-north"}
 
 DEFAULT_STYLE = "office"
 STYLES: dict[str, str] = {
@@ -26,7 +29,7 @@ _STYLE_PROMPTS: dict[str, str] = {
 
 
 def voice_label(key: str) -> str:
-    return VOICES.get(key, key)
+    return VOICES.get(_RETIRED_VOICES.get(key, key), key)
 
 
 def style_prompt(key: str, config: AppConfig) -> str:

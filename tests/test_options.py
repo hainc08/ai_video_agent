@@ -15,5 +15,5 @@ def test_other_styles_have_their_own_english_prompt(settings):
 
 def test_unknown_keys_fall_back_instead_of_failing(settings):
     assert style_prompt("removed-style", settings.config) == settings.config.defaults.style
-    assert voice_label("vi-female-north") == VOICES["vi-female-north"] == "Nữ · miền Bắc"
+    assert voice_label("vi-female-north") == VOICES["vi-female-north"] == "Nữ (Hoài My)"
     assert voice_label("custom-voice") == "custom-voice"

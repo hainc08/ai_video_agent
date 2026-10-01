@@ -121,8 +121,7 @@ class Secrets(BaseSettings):
     gemini_api_key: SecretStr | None = None
     llm_provider: Literal["gemini", "claude"] = "gemini"
     video_provider: Literal["fake", "veo"] = "fake"
-    tts_provider: Literal["fake", "fpt", "google"] = "fake"
-    fpt_tts_api_key: SecretStr | None = None
+    tts_provider: Literal["edge", "fake"] = "edge"
 
     def anthropic_key(self) -> str | None:
         return _reveal(self.anthropic_api_key)
