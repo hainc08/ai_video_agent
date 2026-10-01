@@ -2,8 +2,10 @@ import json
 import shutil
 
 import pytest
+from sqlmodel import Session
 
 from app.config import PROJECT_ROOT, load_settings
+from app.db import init_db, make_engine
 
 _ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -36,3 +38,17 @@ def settings(project_root):
 def plan_dict():
     path = PROJECT_ROOT / "tests" / "fixtures" / "plan_30s.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def engine(tmp_path):
+    engine = make_engine(tmp_path / "data")
+    init_db(engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def session(engine):
+    with Session(engine) as session:
+        yield session

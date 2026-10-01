@@ -1,17 +1,8 @@
-import pytest
 from sqlalchemy import inspect
 from sqlmodel import Session, select
 
-from app.db import init_db, make_engine
+from app.db import init_db
 from app.models import CostEntry, Job, JobStatus, Scene, SceneStatus
-
-
-@pytest.fixture
-def engine(tmp_path):
-    engine = make_engine(tmp_path / "data")
-    init_db(engine)
-    yield engine
-    engine.dispose()
 
 
 def _job(**overrides):
