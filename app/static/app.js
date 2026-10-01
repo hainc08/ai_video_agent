@@ -1,4 +1,4 @@
-// Three small behaviours; everything else is server-rendered HTML + HTMX attributes.
+// A few small behaviours; everything else is server-rendered HTML + HTMX attributes.
 (function () {
   function showFlash(message) {
     var flash = document.getElementById("flash");
@@ -34,4 +34,43 @@
   document.addEventListener("htmx:sendError", function () {
     showFlash("Không kết nối được tới máy chủ. Hãy kiểm tra rồi thử lại.");
   });
+
+  // 4. Screen 3: the server says "something changed"; the page re-reads the progress block.
+  //    EventSource reconnects by itself, and every (re)connection starts with an update.
+  var live = document.querySelector("[data-events-url]");
+  if (live && window.EventSource) {
+    var busy = false;
+    var again = false;
+
+    function scrollLog() {
+      var lines = document.getElementById("log-lines");
+      if (lines) lines.scrollTop = lines.scrollHeight;
+    }
+
+    function refresh() {
+      if (busy) {
+        again = true; // one more pass after the request in flight, so the last change is never missed
+        return;
+      }
+      busy = true;
+      htmx
+        .ajax("GET", live.dataset.progressUrl, { target: "#progress", swap: "outerHTML" })
+        .then(scrollLog, function () {})
+        .then(function () {
+          busy = false;
+          if (again) {
+            again = false;
+            refresh();
+          }
+        });
+    }
+
+    var source = new EventSource(live.dataset.eventsUrl);
+    source.addEventListener("update", refresh);
+    source.addEventListener("end", function () {
+      source.close();
+      window.location.reload(); // the job left "generating": show whatever page its new state has
+    });
+    scrollLog();
+  }
 })();

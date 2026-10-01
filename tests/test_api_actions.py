@@ -208,7 +208,7 @@ def test_approve_moves_the_job_to_generating(start_app, settings, plan_dict):
     assert response.status_code == 200
     assert response.headers["hx-refresh"] == "true"
     assert response.json()["status"] == "generating"
-    assert "Plan đã được duyệt." in page
+    assert "<h1>Đang tạo video</h1>" in page
     assert '<li class="step current"><span class="step-dot">3</span>Đang tạo</li>' in page
 
 

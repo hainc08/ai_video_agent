@@ -162,7 +162,7 @@ async def test_a_filtered_prompt_is_rewritten_never_resent(settings, engine, pla
 
 
 async def test_a_failed_operation_and_a_timeout_also_lead_to_a_regeneration(settings, engine, plan_dict):
-    settings.config.veo.job_timeout_sec = 0.05
+    settings.config.veo.job_timeout_sec = 0.5  # long enough that only the "timeout" scene runs out
     provider = ScriptedProvider({1: ["op_failed", "ok"], 2: ["timeout", "ok"]})
     service, _, planner, job_id = start(
         settings, engine, plan_dict, provider, rewritten(plan_dict, 1), rewritten(plan_dict, 2)

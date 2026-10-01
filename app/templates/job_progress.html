@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+{% if running %}<div data-events-url="/api/jobs/{{ job.id }}/events" data-progress-url="/jobs/{{ job.id }}/progress">{% endif %}
+{% include "_progress.html" %}
+{% if running %}</div>{% endif %}
+{% endblock %}

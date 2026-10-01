@@ -1,0 +1,53 @@
+<div id="progress" class="layout progress">
+<aside class="side">
+  <div class="review-head">
+    <h1>Đang tạo video</h1>
+    <div class="meta">{{ job.idea }}</div>
+  </div>
+  <ol class="card psteps" aria-label="Các bước">
+    {% for item in psteps %}
+    <li class="pstep {{ item.state }}">
+      <span class="pstep-dot">{{ item.mark }}</span>
+      <div>
+        <div class="pstep-title">{{ item.title }}</div>
+        <div class="pstep-note">{{ item.note }}</div>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  <div class="card stack">
+    <div class="est-row"><span>Chi phí đã dùng</span><strong>{{ spent|num }} / {{ cap }} USD</strong></div>
+    <div class="cost-track"><div class="cost-fill" style="width: {{ cost_percent }}%"></div></div>
+  </div>
+  {% if not running %}
+  <div class="card stack">
+    <p>Tất cả clip đã xong và đạt kiểm tra.</p>
+    <p class="muted small">Bước giọng đọc, phụ đề và ghép MP4 chưa được xây dựng (Giai đoạn 4), nên job dừng ở đây.</p>
+    <a class="link-center" href="/">Tạo video mới</a>
+  </div>
+  {% endif %}
+</aside>
+<section class="progress-main">
+  <div class="progress-head">
+    <div class="card-title">Clip theo cảnh</div>
+    <div class="muted small">Chạy song song tối đa {{ max_concurrent }} clip</div>
+  </div>
+  <div class="tiles">
+    {% for tile in tiles %}
+    <div class="tile-cell">
+      <div class="tile {{ tile.kind }}" style="aspect-ratio: {{ tile_ratio }}">
+        {% if tile.clip_url %}<video id="clip-{{ tile.n }}" hx-preserve="true" src="{{ tile.clip_url }}" muted loop autoplay playsinline preload="metadata"></video>{% endif %}
+        <span class="tile-badge">{{ tile.label }}</span>
+      </div>
+      <div class="tile-title">Cảnh {{ tile.n }}</div>
+      <div class="tile-note">{{ tile.note }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="log">
+    <div class="log-title">Nhật ký</div>
+    <div class="log-lines" id="log-lines">{% for line in log %}[{{ line.tag }}] {{ line.message }}
+{% endfor %}</div>
+  </div>
+</section>
+</div>

@@ -189,3 +189,84 @@ def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
         "aspect_error": aspect_error,
         "fake_video": settings.secrets.video_provider == "fake",
     }
+
+
+_TILES: dict[SceneStatus, tuple[str, str]] = {
+    # status -> (badge label, tile kind for styling)
+    SceneStatus.planned: ("Hàng đợi", "wait"),
+    SceneStatus.generating: ("Đang sinh", "run"),
+    SceneStatus.generated: ("Đang kiểm tra", "run"),
+    SceneStatus.qc_failed: ("Sinh lại", "run"),
+    SceneStatus.regenerating: ("Sinh lại", "run"),
+    SceneStatus.approved: ("Đạt", "done"),
+    SceneStatus.failed: ("Lỗi", "fail"),
+}
+
+
+def _tile(job: Job, scene: Scene, duration_sec: int, max_regenerations: int) -> dict[str, Any]:
+    label, kind = _TILES[scene.status]
+    if scene.status == SceneStatus.approved:
+        note = f"{duration_sec} giây"
+    elif scene.status == SceneStatus.generating:
+        note = "Veo đang xử lý"
+    elif scene.status == SceneStatus.generated:
+        note = "Đang kiểm tra clip"
+    elif scene.status in (SceneStatus.regenerating, SceneStatus.qc_failed):
+        # `attempts` moves to 2 only when the new attempt starts; until then the error is still set.
+        number = max(1, scene.attempts if scene.error else scene.attempts - 1)
+        note = f"Lần {number}/{max_regenerations}" + (f" · {scene.error}" if scene.error else "")
+    elif scene.status == SceneStatus.failed:
+        note = scene.error or "Không rõ lý do"
+    else:
+        note = "Chờ lượt"
+    return {"n": scene.scene_no, "label": label, "kind": kind, "note": note, "clip_url": clip_url(job.id, scene)}
+
+
+def progress_context(session: Session, settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
+    """Everything screen 3 shows, read from the database and the job's log file."""
+    scenes = jobstore.list_scenes(session, job.id)
+    durations = {scene.id: scene.duration_sec for scene in plan.scenes}
+    total = len(scenes)
+    approved = sum(1 for scene in scenes if scene.status == SceneStatus.approved)
+    running = job.status == JobStatus.generating
+    clips_state = "run" if running else "done"
+
+    def step(number: int, title: str, note: str, state: str) -> dict[str, str]:
+        mark = {"done": "✓", "run": "•"}.get(state, str(number))
+        return {"title": title, "note": note, "state": state, "mark": mark}
+
+    spent = jobstore.job_cost_usd(session, job.id)
+    width, height = job.aspect.split(":")
+    return {
+        "job": job,
+        "running": running,
+        "psteps": [
+            step(1, "Lập plan", "Hoàn tất", "done"),
+            step(2, "Duyệt plan", "Bạn đã duyệt", "done"),
+            step(3, "Sinh clip bằng Veo", f"{approved}/{total} cảnh xong", clips_state),
+            step(4, "Kiểm tra clip", "Chạy sau mỗi clip" if running else f"{approved}/{total} clip đạt",
+                 "wait" if running else "done"),
+            step(5, "Giọng đọc + phụ đề", "Đang chờ", "wait"),
+            step(6, "Ghép MP4", "Đang chờ", "wait"),
+        ],
+        "tiles": [
+            _tile(job, scene, durations.get(scene.scene_no, 0), settings.config.limits.max_regenerations_per_scene)
+            for scene in scenes
+        ],
+        "tile_ratio": f"{width} / {height}",
+        "max_concurrent": settings.config.veo.max_concurrent,
+        "spent": spent,
+        "cap": f"{job.cost_cap_usd:g}",
+        "cost_percent": round(min(100.0, spent / job.cost_cap_usd * 100)) if job.cost_cap_usd > 0 else 100,
+        "log": jobstore.read_log(settings.data_dir, job.id),
+    }
+
+
+def failed_context(session: Session, job: Job) -> dict[str, Any]:
+    scenes = jobstore.list_scenes(session, job.id)
+    return {
+        "job": job,
+        "failed_scenes": [scene for scene in scenes if scene.status == SceneStatus.failed],
+        "clips_done": sum(1 for scene in scenes if scene.status == SceneStatus.approved),
+        "clips_total": len(scenes),
+    }
