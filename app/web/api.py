@@ -25,6 +25,7 @@ from app.web.views import (
 router = APIRouter(prefix="/api")
 
 MAX_FEEDBACK_CHARS = 2000
+MAX_CAPTION_CHARS = 2200  # what the short-video platforms accept
 _SCENE_TEXT_FIELDS = ("voiceover_vi", "subtitle_vi", "visual", "camera", "veo_prompt_en")
 _SCENE_DURATIONS = {"4": 4, "6": 6, "8": 8}
 
@@ -220,7 +221,7 @@ async def job_events(request: Request, job_id: str, session: Session = Depends(g
     except HTTPException:
         subscription.cancel()
         raise
-    running = job.status == JobStatus.generating
+    running = job.status in (JobStatus.generating, JobStatus.assembling)
 
     async def stream():
         try:
@@ -234,3 +235,31 @@ async def job_events(request: Request, job_id: str, session: Session = Depends(g
             subscription.cancel()
 
     return EventSourceResponse(stream())
+
+
+@router.get("/jobs/{job_id}/video")
+async def get_video(
+    request: Request, job_id: str, download: bool = False, session: Session = Depends(get_session)
+):
+    job = job_or_404(session, job_id)
+    path = jobstore.final_path(request.app.state.settings.data_dir, job.id)
+    if job.status != JobStatus.done or not path.exists():
+        raise HTTPException(status_code=404, detail="Video của job này chưa sẵn sàng.")
+    # A filename makes the response an attachment (the "Tải MP4" button); without it the player streams it.
+    return FileResponse(path, media_type="video/mp4", filename=f"video-{job.id}.mp4" if download else None)
+
+
+@router.post("/jobs/{job_id}/caption")
+async def save_caption(request: Request, job_id: str, session: Session = Depends(get_session)):
+    caption = str((await request.form()).get("caption") or "").strip()
+    job = job_or_404(session, job_id)
+    plan = jobstore.load_plan(job)
+    if job.status != JobStatus.done or plan is None:
+        raise HTTPException(status_code=409, detail="Chỉ sửa được caption khi video đã hoàn tất.")
+    if not caption:
+        raise HTTPException(status_code=422, detail="Hãy nhập caption trước khi lưu.")
+    if len(caption) > MAX_CAPTION_CHARS:
+        raise HTTPException(status_code=422, detail="Caption quá dài (tối đa 2.200 ký tự).")
+    edited = plan.model_copy(update={"caption_vi": caption})
+    jobstore.update_plan(session, request.app.state.settings.data_dir, job, edited)
+    return _changed(request, session, job)

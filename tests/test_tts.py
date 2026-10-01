@@ -145,7 +145,9 @@ async def test_edge_tts_refuses_text_with_nothing_to_say_without_calling_the_ser
 # --- factory --------------------------------------------------------------------------
 
 
-def test_edge_is_the_default_tts(settings):
+def test_edge_is_the_default_tts(project_root):
+    settings = load_settings(project_root)  # not the `settings` fixture: that one forces the fake
+
     assert settings.secrets.tts_provider == "edge"
     assert isinstance(build_tts_provider(settings), EdgeTTSProvider)
 

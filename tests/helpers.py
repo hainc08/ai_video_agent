@@ -3,6 +3,9 @@ import time
 from sqlmodel import Session
 
 from app import jobstore
+from app.models import JobStatus, SceneStatus
+from app.providers.base import ClipRequest
+from app.providers.fake_video import FakeVideoProvider
 from app.schemas import Plan
 
 JOB_FIELDS = dict(
@@ -37,3 +40,15 @@ def wait_until_planned(client, job_id, timeout=5.0):
             return body
         time.sleep(0.02)
     raise AssertionError(f"job {job_id} is still planning after {timeout}s")
+
+
+async def make_assembling_job(settings, engine, plan, **attrs):
+    """A job whose clips exist (real FFmpeg clips) and are approved, waiting for voice and assembly."""
+    job_id = seed_job(engine, settings.data_dir, plan_dict=plan, status=JobStatus.assembling, **attrs)
+    provider = FakeVideoProvider("ffmpeg")
+    with Session(engine) as session:
+        for scene in plan["scenes"]:
+            operation = await provider.submit(ClipRequest(scene["id"], "x", "9:16", scene["duration_sec"]))
+            await provider.download(operation, jobstore.clip_path(settings.data_dir, job_id, scene["id"]))
+            jobstore.set_scene(session, job_id, scene["id"], status=SceneStatus.approved, attempts=1)
+    return job_id

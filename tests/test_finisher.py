@@ -8,12 +8,12 @@ from app import jobstore
 from app.agent.finisher import Finisher
 from app.agent.runner import GenerationService
 from app.events import EventHub
-from app.models import CostEntry, JobStatus, SceneStatus
-from app.providers.base import ClipRequest, ProviderError
+from app.models import CostEntry, JobStatus
+from app.providers.base import ProviderError
 from app.providers.fake_video import FakeVideoProvider
 from app.providers.tts_fake import FakeTTSProvider
 from tests.fakes import FakePlanner
-from tests.helpers import seed_job
+from tests.helpers import make_assembling_job, seed_job
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -54,18 +54,6 @@ def fast(settings, monkeypatch):
     monkeypatch.setattr("app.agent.finisher._BACKOFF_BASE_SEC", 0)
 
 
-async def assembling_job(settings, engine, plan, **attrs):
-    """A job whose clips exist and are approved, waiting for voice and assembly."""
-    job_id = seed_job(engine, settings.data_dir, plan_dict=plan, status=JobStatus.assembling, **attrs)
-    provider = FakeVideoProvider("ffmpeg")
-    with Session(engine) as session:
-        for scene in plan["scenes"]:
-            operation = await provider.submit(ClipRequest(scene["id"], "x", "9:16", scene["duration_sec"]))
-            await provider.download(operation, jobstore.clip_path(settings.data_dir, job_id, scene["id"]))
-            jobstore.set_scene(session, job_id, scene["id"], status=SceneStatus.approved, attempts=1)
-    return job_id
-
-
 def make_finisher(settings, engine, tts):
     log = []
     finisher = Finisher(settings, engine, lambda: tts, lambda job_id, tag, message: log.append(f"[{tag}] {message}"))
@@ -82,7 +70,7 @@ def job_of(engine, job_id):
 async def test_finisher_adds_voice_subtitles_and_assembles_the_final_video(settings, engine, short_plan):
     tts = ScriptedTTS()
     finisher, log = make_finisher(settings, engine, tts)
-    job_id = await assembling_job(settings, engine, short_plan, voice="vi-male-north")
+    job_id = await make_assembling_job(settings, engine, short_plan, voice="vi-male-north")
 
     await finisher.run(job_id)
 
@@ -101,7 +89,7 @@ async def test_finisher_adds_voice_subtitles_and_assembles_the_final_video(setti
 async def test_existing_voice_files_are_reused(settings, engine, short_plan):
     first = ScriptedTTS()
     finisher, _ = make_finisher(settings, engine, first)
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
     await finisher.run(job_id)
     jobstore.final_path(settings.data_dir, job_id).unlink()
     jobstore.audio_path(settings.data_dir, job_id, 2).unlink()
@@ -122,7 +110,7 @@ async def test_existing_voice_files_are_reused(settings, engine, short_plan):
 async def test_a_transient_tts_error_is_retried(settings, engine, short_plan):
     tts = ScriptedTTS([ProviderError("Dịch vụ giọng đọc Edge không phản hồi (TimeoutError).", retryable=True)])
     finisher, _ = make_finisher(settings, engine, tts)
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await finisher.run(job_id)
 
@@ -134,7 +122,7 @@ async def test_tts_that_keeps_failing_fails_the_job_at_the_assembling_step(setti
     error = ProviderError("Dịch vụ giọng đọc Edge không phản hồi (TimeoutError).", retryable=True)
     tts = ScriptedTTS([error] * 20)
     finisher, _ = make_finisher(settings, engine, tts)
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await finisher.run(job_id)
 
@@ -146,7 +134,7 @@ async def test_tts_that_keeps_failing_fails_the_job_at_the_assembling_step(setti
 
 async def test_a_missing_clip_fails_the_job_with_the_scene_number(settings, engine, short_plan):
     finisher, _ = make_finisher(settings, engine, ScriptedTTS())
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
     jobstore.clip_path(settings.data_dir, job_id, 2).unlink()
 
     await finisher.run(job_id)
@@ -158,7 +146,7 @@ async def test_a_missing_clip_fails_the_job_with_the_scene_number(settings, engi
 
 async def test_an_unexpected_error_fails_the_job_instead_of_leaving_it_assembling(settings, engine, short_plan):
     finisher, _ = make_finisher(settings, engine, ScriptedTTS([RuntimeError("boom")]))
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await finisher.run(job_id)
 
@@ -172,7 +160,7 @@ async def test_a_tts_factory_that_cannot_build_fails_the_job(settings, engine, s
         raise ProviderError("Không khởi tạo được dịch vụ giọng đọc.")
 
     finisher = Finisher(settings, engine, factory, lambda *args: None)
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await finisher.run(job_id)
 
@@ -195,7 +183,7 @@ async def test_a_priced_tts_is_recorded_as_cost(settings, engine, short_plan):
     tts = ScriptedTTS()
     tts.price_usd_per_1k_chars = 0.5
     finisher, _ = make_finisher(settings, engine, tts)
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await finisher.run(job_id)
 
@@ -232,7 +220,7 @@ async def test_a_job_already_waiting_for_assembly_is_resumed_by_run(settings, en
         settings, engine, hub, lambda: FakeVideoProvider("ffmpeg"), lambda: FakePlanner(),
         tts_factory=lambda: ScriptedTTS(),
     )
-    job_id = await assembling_job(settings, engine, short_plan)
+    job_id = await make_assembling_job(settings, engine, short_plan)
 
     await service.run(job_id)
 

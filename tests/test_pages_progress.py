@@ -121,24 +121,6 @@ def test_cost_bar_never_exceeds_its_track(running_job, settings):
     assert 'style="width: 100%"' in client.get(f"/jobs/{job_id}/progress").text
 
 
-def test_a_job_whose_clips_are_done_says_the_next_step_is_not_built(start_app, settings, plan_dict):
-    client, _ = start_app()
-    engine = client.app.state.engine
-    job_id = seed_job(engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.assembling)
-    with Session(engine) as session:
-        for scene_no in range(1, 6):
-            jobstore.set_scene(session, job_id, scene_no, status=SceneStatus.approved, attempts=1)
-
-    text = client.get(f"/jobs/{job_id}").text
-
-    assert "5/5 cảnh xong" in text
-    assert text.count('class="pstep done"') == 4
-    assert text.count('class="pstep wait"') == 2
-    assert "Giai đoạn 4" in text
-    assert "data-events-url" not in text  # nothing is running, so no live connection
-    assert text.count("<video") == 5
-
-
 def test_a_failed_generation_lists_the_scenes_that_failed(start_app, settings, plan_dict):
     client, _ = start_app()
     engine = client.app.state.engine

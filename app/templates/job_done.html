@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout done">
+<section class="done-video">
+  {% if video_url %}
+  <video class="player" src="{{ video_url }}" controls playsinline preload="metadata" style="aspect-ratio: {{ ratio }}"></video>
+  {% else %}
+  <div class="warn-box" role="alert">Không tìm thấy file video của job này (final.mp4 đã bị xóa hoặc chuyển đi).</div>
+  {% endif %}
+</section>
+<aside class="side done-side">
+  <div class="review-head">
+    <div class="eyebrow">VIDEO ĐÃ XONG</div>
+    <h1>{{ job.idea }}</h1>
+    <div class="meta">{{ total_sec }} giây · {{ job.aspect }} · {{ scene_count }} cảnh · Giọng: {{ voice }}</div>
+  </div>
+  <div class="done-actions">
+    {% if video_url %}<a class="btn-primary" href="{{ video_url }}?download=1">Tải MP4</a>{% endif %}
+    <a class="btn-outline btn-link" href="/api/jobs/{{ job.id }}/plan.json">Tải plan.json</a>
+  </div>
+  <form class="card stack" hx-post="/api/jobs/{{ job.id }}/caption" hx-swap="none" hx-disabled-elt="find button[type=submit]">
+    <label class="card-title" for="caption">Caption gợi ý</label>
+    <textarea id="caption" name="caption" rows="4" required maxlength="2200">{{ caption }}</textarea>
+    <div class="edit-actions">
+      <button type="submit" class="btn-outline">Lưu caption</button>
+      <button type="button" class="btn-small" data-copy="caption">Sao chép</button>
+    </div>
+  </form>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">THỜI GIAN THỰC</div><div class="stat-value">{{ elapsed }}</div></div>
+    <div class="stat"><div class="stat-label">CHI PHÍ THỰC</div><div class="stat-value">{{ cost|num }} USD</div></div>
+    <div class="stat"><div class="stat-label">CẢNH PHẢI SINH LẠI</div><div class="stat-value">{{ regenerated }}</div></div>
+  </div>
+  <a class="link-center" href="/">Tạo video mới</a>
+</aside>
+</div>
+{% endblock %}

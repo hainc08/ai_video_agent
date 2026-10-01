@@ -15,12 +15,14 @@ from sqlmodel import Session
 from app import jobstore
 from app.agent.factory import build_planner
 from app.agent.planning import PlannerFactory, PlanningService
+from app.agent.finisher import TTSFactory
 from app.agent.runner import GenerationService, ProviderFactory
 from app.assembler.ffmpeg import FFmpegNotFoundError, check_binaries
 from app.config import Settings, load_settings
 from app.db import init_db, make_engine
 from app.events import EventHub
-from app.providers import build_video_provider
+from app.models import JobStatus
+from app.providers import build_tts_provider, build_video_provider
 from app.web import api, pages
 
 APP_DIR = Path(__file__).resolve().parent
@@ -66,11 +68,14 @@ def create_app(
     settings: Settings | None = None,
     planner_factory: PlannerFactory | None = None,
     provider_factory: ProviderFactory | None = None,
+    tts_factory: TTSFactory | None = None,
+    auto_assemble: bool = True,
 ) -> FastAPI:
     settings = settings or load_settings()
     # Built on first use, not at startup: the app must start without an API key.
     factory = planner_factory or (lambda: build_planner(settings))
     video_factory = provider_factory or (lambda: build_video_provider(settings))
+    voice_factory = tts_factory or (lambda: build_tts_provider(settings))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -84,8 +89,15 @@ def create_app(
         app.state.planning = PlanningService(settings, app.state.engine, factory)
         app.state.hub = EventHub()
         app.state.generation = GenerationService(
-            settings, app.state.engine, app.state.hub, video_factory, factory
+            settings, app.state.engine, app.state.hub, video_factory, factory,
+            tts_factory=voice_factory if auto_assemble else None,
         )
+        if auto_assemble:
+            # Voice-over and assembly cost nothing, so jobs a restart left there are simply finished.
+            with Session(app.state.engine) as session:
+                waiting = jobstore.list_job_ids(session, JobStatus.assembling)
+            for job_id in waiting:
+                app.state.generation.spawn(app.state.generation.run(job_id))
         try:
             check_binaries(settings.config.assembler)
             app.state.ffmpeg_error = None

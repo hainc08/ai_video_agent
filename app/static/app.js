@@ -17,7 +17,21 @@
       return;
     }
     var prompt = event.target.closest(".scene-prompt");
-    if (prompt) prompt.classList.toggle("expanded");
+    if (prompt) {
+      prompt.classList.toggle("expanded");
+      return;
+    }
+    var copy = event.target.closest("[data-copy]");
+    if (copy) {
+      var field = document.getElementById(copy.dataset.copy);
+      if (field && navigator.clipboard) {
+        navigator.clipboard.writeText(field.value).then(function () {
+          var label = copy.textContent;
+          copy.textContent = "Đã sao chép";
+          setTimeout(function () { copy.textContent = label; }, 1500);
+        });
+      }
+    }
   });
 
   // 2. API errors come back as JSON {"detail": "..."}; show the message above the page.

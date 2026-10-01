@@ -11,6 +11,7 @@ from app.web.forms import default_form_values
 from app.web.views import (
     STATUS_LABELS,
     current_step,
+    done_context,
     failed_context,
     get_session,
     progress_context,
@@ -57,6 +58,9 @@ async def job_page(request: Request, job_id: str, session: Session = Depends(get
         spent = jobstore.job_cost_usd(session, job.id)
         context = review_context(request.app.state.settings, job, plan, spent)
         return render(request, "job_review.html", context, step=step)
+    if job.status == JobStatus.done and plan is not None:
+        context = done_context(session, request.app.state.settings, job, plan)
+        return render(request, "job_done.html", context, step=step)
     if job.status in _PROGRESS_STATES and plan is not None:
         context = progress_context(session, request.app.state.settings, job, plan)
         return render(request, "job_progress.html", context, step=step)

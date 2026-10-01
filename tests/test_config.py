@@ -73,9 +73,11 @@ def test_no_config_file_at_all_is_a_clear_error(tmp_path):
         load_config(tmp_path)
 
 
-def test_secrets_default_to_the_free_providers_without_dotenv(settings):
+def test_secrets_default_to_the_free_providers_without_dotenv(project_root):
+    settings = load_settings(project_root)
+
     assert settings.secrets.video_provider == "fake"
-    assert settings.secrets.tts_provider == "edge"  # free; tests never build it for real
+    assert settings.secrets.tts_provider == "edge"
     assert settings.secrets.anthropic_key() is None
     assert settings.secrets.gemini_key() is None
 

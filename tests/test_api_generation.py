@@ -121,7 +121,9 @@ async def test_events_follow_a_running_job_until_it_ends(settings, plan_dict, mo
     monkeypatch.setattr(runner, "check_clip", check)
     settings.config.veo.poll_interval_sec = 0.001
     provider = ScriptedProvider(price=0)
-    app = create_app(settings, planner_factory=lambda: FakePlanner(), provider_factory=lambda: provider)
+    app = create_app(
+        settings, planner_factory=lambda: FakePlanner(), provider_factory=lambda: provider, auto_assemble=False
+    )
     async with app.router.lifespan_context(app):
         job_id = seed_job(app.state.engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.generating)
         transport = httpx.ASGITransport(app=app)

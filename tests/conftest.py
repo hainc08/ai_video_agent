@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.config import PROJECT_ROOT, load_settings
 from app.db import init_db, make_engine
 from app.main import create_app
+from app.providers.tts_fake import FakeTTSProvider
 from tests.fakes import FakePlanner, HeldProvider
 
 _ENV_VARS = (
@@ -38,6 +39,8 @@ def project_root(tmp_path):
 def settings(project_root):
     settings = load_settings(project_root)
     settings.config.server.allowed_hosts.append("testserver")  # the host TestClient uses
+    # The default TTS is a network service: a test that forgets to inject one must still stay offline.
+    settings.secrets.tts_provider = "fake"
     return settings
 
 
@@ -70,10 +73,15 @@ def start_app(settings):
     """
     with ExitStack() as stack:
 
-        def start(*outcomes, provider=None):
+        def start(*outcomes, provider=None, auto_assemble=False):
             planner = FakePlanner(*outcomes)
             video = provider or HeldProvider()
-            app = create_app(settings, planner_factory=lambda: planner, provider_factory=lambda: video)
+            # Never the real (network) TTS in tests. Without auto_assemble a job stops at
+            # `assembling`, as it did before the finisher existed.
+            app = create_app(
+                settings, planner_factory=lambda: planner, provider_factory=lambda: video,
+                tts_factory=lambda: FakeTTSProvider("ffmpeg"), auto_assemble=auto_assemble,
+            )
             return stack.enter_context(TestClient(app)), planner
 
         yield start

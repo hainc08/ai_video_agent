@@ -19,13 +19,6 @@
     <div class="est-row"><span>Chi phí đã dùng</span><strong>{{ spent|num }} / {{ cap }} USD</strong></div>
     <div class="cost-track"><div class="cost-fill" style="width: {{ cost_percent }}%"></div></div>
   </div>
-  {% if not running %}
-  <div class="card stack">
-    <p>Tất cả clip đã xong và đạt kiểm tra.</p>
-    <p class="muted small">Bước giọng đọc, phụ đề và ghép MP4 chưa được xây dựng (Giai đoạn 4), nên job dừng ở đây.</p>
-    <a class="link-center" href="/">Tạo video mới</a>
-  </div>
-  {% endif %}
 </aside>
 <section class="progress-main">
   <div class="progress-head">

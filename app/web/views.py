@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +135,12 @@ def clip_url(job_id: str, scene: Scene) -> str | None:
     return f"/api/jobs/{job_id}/clips/{scene.scene_no}"
 
 
+def video_url(settings: Settings, job: Job) -> str | None:
+    if job.status != JobStatus.done or not jobstore.final_path(settings.data_dir, job.id).exists():
+        return None
+    return f"/api/jobs/{job.id}/video"
+
+
 def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]:
     plan = jobstore.load_plan(job)
     estimated = plan_estimate(settings, job, plan)[0] if plan is not None else None
@@ -159,6 +166,7 @@ def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]
         ],
         "log": jobstore.read_log(settings.data_dir, job.id, limit=50),
         "cost_usd": jobstore.job_cost_usd(session, job.id),
+        "video_url": video_url(settings, job),
         "estimate": estimated.model_dump() if estimated is not None else None,
     }
 
@@ -232,8 +240,10 @@ def progress_context(session: Session, settings: Settings, job: Job, plan: Plan)
     durations = {scene.id: scene.duration_sec for scene in plan.scenes}
     total = len(scenes)
     approved = sum(1 for scene in scenes if scene.status == SceneStatus.approved)
-    running = job.status == JobStatus.generating
-    clips_state = "run" if running else "done"
+    generating = job.status == JobStatus.generating
+    # While the job is being finished, progress shows in the files the finisher has written.
+    voiced = sum(1 for scene in scenes if jobstore.audio_path(settings.data_dir, job.id, scene.scene_no).exists())
+    voices_done = not generating and total > 0 and voiced == total
 
     def step(number: int, title: str, note: str, state: str) -> dict[str, str]:
         mark = {"done": "✓", "run": "•"}.get(state, str(number))
@@ -243,15 +253,17 @@ def progress_context(session: Session, settings: Settings, job: Job, plan: Plan)
     width, height = job.aspect.split(":")
     return {
         "job": job,
-        "running": running,
+        "running": job.status in (JobStatus.generating, JobStatus.assembling),
         "psteps": [
             step(1, "Lập plan", "Hoàn tất", "done"),
             step(2, "Duyệt plan", "Bạn đã duyệt", "done"),
-            step(3, "Sinh clip bằng Veo", f"{approved}/{total} cảnh xong", clips_state),
-            step(4, "Kiểm tra clip", "Chạy sau mỗi clip" if running else f"{approved}/{total} clip đạt",
-                 "wait" if running else "done"),
-            step(5, "Giọng đọc + phụ đề", "Đang chờ", "wait"),
-            step(6, "Ghép MP4", "Đang chờ", "wait"),
+            step(3, "Sinh clip bằng Veo", f"{approved}/{total} cảnh xong", "run" if generating else "done"),
+            step(4, "Kiểm tra clip", "Chạy sau mỗi clip" if generating else f"{approved}/{total} clip đạt",
+                 "wait" if generating else "done"),
+            step(5, "Giọng đọc + phụ đề",
+                 "Đang chờ" if generating else f"{voiced}/{total} cảnh có giọng đọc",
+                 "wait" if generating else ("done" if voices_done else "run")),
+            step(6, "Ghép MP4", "Đang ghép video…" if voices_done else "Đang chờ", "run" if voices_done else "wait"),
         ],
         "tiles": [
             _tile(job, scene, durations.get(scene.scene_no, 0), settings.config.limits.max_regenerations_per_scene)
@@ -273,4 +285,33 @@ def failed_context(session: Session, job: Job) -> dict[str, Any]:
         "failed_scenes": [scene for scene in scenes if scene.status == SceneStatus.failed],
         "clips_done": sum(1 for scene in scenes if scene.status == SceneStatus.approved),
         "clips_total": len(scenes),
+    }
+
+
+def _elapsed(seconds: float) -> str:
+    seconds = max(0, round(seconds))
+    minutes, rest = divmod(seconds, 60)
+    return f"{minutes} phút {rest} giây" if minutes else f"{rest} giây"
+
+
+def done_context(session: Session, settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
+    """Screen 4: the finished video and the real figures of the run."""
+    scenes = jobstore.list_scenes(session, job.id)
+    final = jobstore.final_path(settings.data_dir, job.id)
+    # No "finished at" column exists (and none is added: there are no migrations), so the
+    # video file's own timestamp says when the job ended.
+    created = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
+    elapsed = _elapsed(final.stat().st_mtime - created.timestamp()) if final.exists() else "không rõ"
+    width, height = job.aspect.split(":")
+    return {
+        "job": job,
+        "video_url": video_url(settings, job),
+        "ratio": f"{width} / {height}",
+        "voice": voice_label(job.voice),
+        "total_sec": sum(scene.duration_sec for scene in plan.scenes),
+        "scene_count": len(plan.scenes),
+        "caption": plan.caption_vi,
+        "elapsed": elapsed,
+        "cost": jobstore.job_cost_usd(session, job.id),
+        "regenerated": sum(1 for scene in scenes if scene.attempts > 1),
     }

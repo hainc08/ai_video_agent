@@ -3,7 +3,7 @@
 <section class="card center-card">
   <h1>Không tạo được video</h1>
   <p>{{ job.idea }}</p>
-  <p class="muted small">Bước lỗi: {% if job.failed_step == "planning" %}Lập plan{% elif job.failed_step == "generating" %}Sinh video{% else %}{{ job.failed_step or "không rõ" }}{% endif %}</p>
+  <p class="muted small">Bước lỗi: {% if job.failed_step == "planning" %}Lập plan{% elif job.failed_step == "generating" %}Sinh video{% elif job.failed_step == "assembling" %}Giọng đọc và ghép video{% else %}{{ job.failed_step or "không rõ" }}{% endif %}</p>
   <div class="warn-box" role="alert">{{ job.error or "Không rõ nguyên nhân." }}</div>
   {% if job.failed_step == "generating" %}
   <p class="muted small">{{ clips_done }}/{{ clips_total }} cảnh đã có clip (được giữ lại trong thư mục của job).</p>
