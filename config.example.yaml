@@ -18,11 +18,18 @@ claude:
   price_usd_per_mtok_input: 2.0   # đơn giá của model ở trên; sửa lại nếu đổi model
   price_usd_per_mtok_output: 10.0
 
+# Chỉ dùng khi VIDEO_PROVIDER=veo trong .env. Bảng giá ngày 01/10/2026 (USD/giây, không có gói miễn phí)
+# — kiểm tra lại tại https://ai.google.dev/gemini-api/docs/pricing trước khi chạy thật:
+#   veo-3.1-generate-preview        720p/1080p: 0.40   4k: 0.60
+#   veo-3.1-fast-generate-preview   720p: 0.10   1080p: 0.12   4k: 0.30
+#   veo-3.1-lite-generate-preview   720p: 0.05   1080p: 0.08
+# Veo chỉ hỗ trợ tỉ lệ 9:16 và 16:9 (không có 1:1). 1080p/4k chỉ áp dụng cho cảnh 8 giây;
+# cảnh 4 và 6 giây luôn sinh ở 720p. Veo luôn sinh kèm audio (không tắt được).
 veo:
-  model: veo-3.1-generate-preview # xem https://ai.google.dev/gemini-api/docs/video
+  model: veo-3.1-generate-preview # xem https://ai.google.dev/gemini-api/docs/veo
   resolution: 720p                # 720p cho nháp, 1080p cho bản chính
-  generate_audio: false
-  price_usd_per_second: null      # ĐIỀN đơn giá thực tế trước khi chạy veo thật
+  generate_audio: false           # chưa dùng: Gemini API không cho tắt audio của Veo
+  price_usd_per_second: null      # ĐIỀN đơn giá của model + độ phân giải ở trên trước khi chạy veo thật
   max_concurrent: 3
   job_timeout_sec: 600
   poll_interval_sec: 10
