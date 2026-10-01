@@ -89,6 +89,12 @@ class StorageConfig(_Section):
     data_dir: str = "data"
 
 
+class ServerConfig(_Section):
+    # Host names the server answers to. Anything else is refused, so a web page that points
+    # its own domain at 127.0.0.1 (DNS rebinding) cannot drive the app from the user's browser.
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1", "::1"])
+
+
 class AppConfig(_Section):
     # Only the section of the provider chosen by LLM_PROVIDER is required (checked in load_settings).
     gemini: GeminiConfig | None = None
@@ -100,6 +106,7 @@ class AppConfig(_Section):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     assembler: AssemblerConfig = Field(default_factory=AssemblerConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)
 
 
 def _reveal(secret: SecretStr | None) -> str | None:

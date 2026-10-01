@@ -55,6 +55,9 @@ class ScriptedProvider:
         self.price_usd_per_second = price
         self.supported_aspects = frozenset(aspects)
         self.submitted = []  # (scene_no, prompt) of every accepted submit
+        self.download_script = {}  # scene_no -> exceptions raised by successive downloads
+        self.downloads = 0
+        self._scenes = {}
         self.submit_attempts = 0
         self._operations = {}
         self._polls = {}
@@ -70,6 +73,7 @@ class ScriptedProvider:
         operation_id = f"op-{len(self.submitted) + 1}"
         self.submitted.append((request.scene_no, request.prompt))
         self._operations[operation_id] = outcome
+        self._scenes[operation_id] = request.scene_no
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         return operation_id
@@ -77,6 +81,8 @@ class ScriptedProvider:
     async def poll(self, operation_id):
         await asyncio.sleep(0)
         outcome = self._operations[operation_id]
+        if outcome == "poll_crash":
+            raise RuntimeError("boom")
         polls = self._polls[operation_id] = self._polls.get(operation_id, 0) + 1
         if outcome == "timeout" or polls < 3:
             return PollResult("running")
@@ -89,6 +95,10 @@ class ScriptedProvider:
         return PollResult("done")
 
     async def download(self, operation_id, path):
+        self.downloads += 1
+        errors = self.download_script.get(self._scenes[operation_id], [])
+        if errors:
+            raise errors.pop(0)
         self.active -= 1
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"bad" if self._operations[operation_id] == "bad" else b"ok")

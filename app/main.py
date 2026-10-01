@@ -31,25 +31,35 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 class SameOriginOnly:
-    """Refuse state-changing requests that a page on another site made the browser send.
+    """Keep other web sites from driving this server through the user's browser.
 
-    The server listens on localhost with no login, so any site open in the same browser
-    could otherwise post forms to it and start jobs that cost money.
+    The server listens on localhost with no login, so two things are refused:
+    - any request for a host name the server is not configured to serve (a page that points
+      its own domain at 127.0.0.1 — DNS rebinding — would otherwise look same-origin);
+    - a state-changing request whose Origin is a different site (a cross-site form post).
     """
 
-    def __init__(self, app):
+    def __init__(self, app, allowed_hosts):
         self._app = app
+        self._allowed_hosts = allowed_hosts  # the live config list, so it can be extended
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["method"] not in _SAFE_METHODS:
+        if scope["type"] == "http":
             headers = {name: value for name, value in scope["headers"]}
-            origin = headers.get(b"origin", b"").decode("latin-1")
             host = headers.get(b"host", b"").decode("latin-1")
-            if origin and urlsplit(origin).netloc != host:
-                response = JSONResponse({"detail": "Yêu cầu từ trang khác bị từ chối."}, status_code=403)
-                await response(scope, receive, send)
+            hostname = urlsplit("//" + host).hostname if host else None
+            if hostname not in {allowed.lower() for allowed in self._allowed_hosts}:
+                await self._refuse(scope, receive, send, "Máy chủ không phục vụ tên miền này.")
+                return
+            origin = headers.get(b"origin", b"").decode("latin-1")
+            if scope["method"] not in _SAFE_METHODS and origin and urlsplit(origin).netloc != host:
+                await self._refuse(scope, receive, send, "Yêu cầu từ trang khác bị từ chối.")
                 return
         await self._app(scope, receive, send)
+
+    @staticmethod
+    async def _refuse(scope, receive, send, detail):
+        await JSONResponse({"detail": detail}, status_code=403)(scope, receive, send)
 
 
 def create_app(
@@ -89,7 +99,7 @@ def create_app(
         app.state.engine.dispose()
 
     app = FastAPI(title="AI Video Agent", lifespan=lifespan)
-    app.add_middleware(SameOriginOnly)
+    app.add_middleware(SameOriginOnly, allowed_hosts=settings.config.server.allowed_hosts)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
     app.include_router(pages.router)
     app.include_router(api.router)

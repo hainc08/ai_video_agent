@@ -62,7 +62,8 @@
     {% if estimate.cost_usd_max > estimate.cost_usd %}<p class="muted small">Tối đa {{ estimate.cost_usd_max|num }} USD nếu mọi cảnh đều phải sinh lại.</p>{% endif %}
     <p class="muted small">Trần của bạn: {{ cap }} USD. Agent dừng lại nếu sắp vượt.</p>
     {% if fake_video %}<p class="muted small">Đang dùng provider giả (VIDEO_PROVIDER=fake) nên không tốn tiền video.</p>{% endif %}
-    {% if estimate.over_cap %}<div class="warn-box" role="alert">Chi phí dự kiến vượt trần {{ cap }} USD. Hãy rút ngắn video hoặc tạo lại với trần cao hơn.</div>{% endif %}
+    {% if spent %}<p class="muted small">Job này đã dùng {{ spent|num }} USD cho việc lập plan; phần này cũng tính vào trần.</p>{% endif %}
+    {% if over_cap %}<div class="warn-box" role="alert">Chi phí dự kiến{% if spent %} cộng phần đã dùng{% endif %} vượt trần {{ cap }} USD. Hãy rút ngắn video hoặc tạo lại với trần cao hơn.</div>{% endif %}
     {% else %}
     <div class="warn-box" role="alert">{{ estimate_error }}</div>
     {% endif %}

@@ -191,3 +191,59 @@ def test_scene_statuses_use_the_generation_states(start_app, settings, plan_dict
     scene = client.get(f"/api/jobs/{job_id}").json()["scenes"][1]
 
     assert scene == {"scene_no": 2, "status": "failed", "attempts": 2, "error": "sai tỉ lệ khung hình", "clip_url": None}
+
+
+# --- findings from the phase 3 review ---------------------------------------------------
+
+
+def test_approve_counts_what_the_job_already_spent_against_the_cap(start_app, settings, plan_dict):
+    from sqlmodel import Session
+
+    from app.models import CostEntry
+
+    settings.secrets.video_provider = "veo"
+    settings.config.veo.price_usd_per_second = 0.1  # 30 s of clips = $3.00
+    provider = ScriptedProvider()
+    client, _ = start_app(provider=provider)
+    job_id = seed_job(client.app.state.engine, settings.data_dir, plan_dict=plan_dict, cost_cap_usd=3.0)
+    with Session(client.app.state.engine) as session:
+        session.add(CostEntry(job_id=job_id, kind="gemini", units=1, unit="tokens_in", usd=0.02))
+        session.commit()
+
+    response = client.post(f"/api/jobs/{job_id}/approve")
+    page = client.get(f"/jobs/{job_id}").text
+
+    assert response.status_code == 409
+    assert "3,02 USD" in response.json()["detail"] and "trần 3 USD" in response.json()["detail"]
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "awaiting_approval"
+    assert provider.submit_attempts == 0
+    assert 'hx-disabled-elt="this" disabled>Duyệt &amp; tạo video</button>' in page
+    assert "đã dùng 0,02 USD" in page
+
+
+@pytest.mark.parametrize("method, path", [("GET", "/"), ("GET", "/api/jobs"), ("POST", "/api/jobs")])
+def test_requests_for_a_host_the_server_does_not_serve_are_refused(start_app, method, path):
+    client, _ = start_app()
+
+    # A DNS-rebinding page reaches the server under its own host name, with a matching Origin.
+    response = client.request(
+        method, path, data={"idea": "ý tưởng từ trang lạ"} if method == "POST" else None,
+        headers={"Host": "evil.example:8000", "Origin": "http://evil.example:8000"}, follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert client.get("/api/jobs").json() == []
+
+
+@pytest.mark.parametrize("host", ["localhost:8000", "127.0.0.1:8000", "127.0.0.1", "[::1]:8000", "LOCALHOST:8000"])
+def test_local_host_names_are_served(start_app, host):
+    client, _ = start_app()
+
+    assert client.get("/api/jobs", headers={"Host": host}).status_code == 200
+
+
+def test_an_extra_host_can_be_allowed_in_config(start_app, settings):
+    settings.config.server.allowed_hosts.append("may-van-phong.local")
+    client, _ = start_app()
+
+    assert client.get("/api/jobs", headers={"Host": "may-van-phong.local:8000"}).status_code == 200

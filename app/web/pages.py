@@ -54,7 +54,8 @@ async def job_page(request: Request, job_id: str, session: Session = Depends(get
         return render(request, "job_failed.html", failed_context(session, job), step=step)
     plan = jobstore.load_plan(job)
     if job.status == JobStatus.awaiting_approval and plan is not None:
-        context = review_context(request.app.state.settings, job, plan)
+        spent = jobstore.job_cost_usd(session, job.id)
+        context = review_context(request.app.state.settings, job, plan, spent)
         return render(request, "job_review.html", context, step=step)
     if job.status in _PROGRESS_STATES and plan is not None:
         context = progress_context(session, request.app.state.settings, job, plan)

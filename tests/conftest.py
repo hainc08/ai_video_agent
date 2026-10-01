@@ -36,7 +36,9 @@ def project_root(tmp_path):
 
 @pytest.fixture
 def settings(project_root):
-    return load_settings(project_root)
+    settings = load_settings(project_root)
+    settings.config.server.allowed_hosts.append("testserver")  # the host TestClient uses
+    return settings
 
 
 @pytest.fixture

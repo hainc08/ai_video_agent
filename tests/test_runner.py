@@ -310,18 +310,30 @@ async def test_an_unexpected_error_fails_the_job_instead_of_leaving_it_generatin
 # --- money --------------------------------------------------------------------------
 
 
-async def test_the_cap_is_a_hard_stop_even_with_clips_running_in_parallel(settings, engine, plan_dict):
-    provider = ScriptedProvider()  # 6 s x $0.10 = $0.60 per clip
-    service, _, _, job_id = start(settings, engine, plan_dict, provider, cost_cap_usd=1.3)
+async def test_a_job_that_cannot_fit_its_cap_fails_before_anything_is_submitted(settings, engine, plan_dict):
+    provider = ScriptedProvider()  # 5 clips x 6 s x $0.10 = $3.00
+    service, _, _, job_id = start(settings, engine, plan_dict, provider, cost_cap_usd=3.0)
+    with Session(engine) as session:  # planning already cost a little, so $3.00 of clips no longer fits
+        session.add(CostEntry(job_id=job_id, kind="gemini", units=1, unit="tokens_in", usd=0.02))
+        session.commit()
 
     await service.run(job_id)
 
     job, scenes, costs = state(engine, job_id)
     assert job.status == JobStatus.failed
-    assert "trần chi phí" in job.error
-    assert len(provider.submitted) == 2
-    assert round(sum(c.usd for c in costs), 6) == 1.2
-    assert sorted(s.status.value for s in scenes) == ["approved", "approved", "planned", "planned", "planned"]
+    assert "trần chi phí" in job.error and "3,02" in job.error
+    assert provider.submit_attempts == 0
+    assert [c.kind for c in costs] == ["gemini"]
+    assert {s.status for s in scenes} == {SceneStatus.planned}
+
+
+async def test_a_job_that_exactly_fits_its_cap_runs(settings, engine, plan_dict):
+    provider = ScriptedProvider()
+    service, _, _, job_id = start(settings, engine, plan_dict, provider, cost_cap_usd=3.0)
+
+    await service.run(job_id)
+
+    assert state(engine, job_id)[0].status == JobStatus.assembling
 
 
 async def test_a_job_already_at_its_cap_submits_nothing(settings, engine, plan_dict):
@@ -348,8 +360,11 @@ async def test_a_regeneration_is_refused_when_it_would_break_the_cap(settings, e
     job, _, costs = state(engine, job_id)
     assert job.status == JobStatus.failed
     assert "trần chi phí" in job.error
-    assert len(provider.submitted) == 5  # the sixth clip (the regeneration) would cost $3.60 in total
-    assert round(sum(c.usd for c in costs if c.kind == "veo"), 6) == 3.0
+    # A regeneration would bring the total to $3.60: scene 1 is not submitted a second time, and
+    # scenes still waiting for a slot are not started for a job that can no longer finish.
+    assert [n for n, _ in provider.submitted].count(1) == 1
+    assert len(provider.submitted) <= 5
+    assert round(sum(c.usd for c in costs if c.kind == "veo"), 6) == round(0.6 * len(provider.submitted), 6)
 
 
 # --- re-runs ------------------------------------------------------------------------
@@ -400,3 +415,107 @@ async def test_spawned_work_runs_in_the_background_and_shutdown_cancels_it(setti
 
     # Still "generating": the next startup's recover_interrupted() resolves it.
     assert state(engine, job_id)[0].status == JobStatus.generating
+
+
+# --- findings from the phase 3 review ---------------------------------------------------
+
+
+async def test_a_provider_crash_fails_that_scene_with_a_reason_instead_of_leaving_it_generating(
+    settings, engine, plan_dict
+):
+    provider = ScriptedProvider({1: ["poll_crash"]})
+    service, _, _, job_id = start(settings, engine, plan_dict, provider)
+
+    await service.run(job_id)
+
+    job, scenes, _ = state(engine, job_id)
+    assert job.status == JobStatus.failed
+    assert "Cảnh 1" in job.error and "boom" not in job.error
+    assert scenes[0].status == SceneStatus.failed
+    assert "RuntimeError" in scenes[0].error
+    assert all(s.status in (SceneStatus.failed, SceneStatus.approved, SceneStatus.planned) for s in scenes)
+
+
+async def test_scenes_waiting_for_a_slot_are_not_submitted_once_the_job_has_stopped(settings, engine, plan_dict):
+    settings.config.veo.max_concurrent = 1
+    settings.config.limits.max_regenerations_per_scene = 0
+    provider = ScriptedProvider({1: ["bad"]})
+    service, _, _, job_id = start(settings, engine, plan_dict, provider)
+
+    await service.run(job_id)
+
+    job, scenes, costs = state(engine, job_id)
+    assert job.status == JobStatus.failed
+    assert [n for n, _ in provider.submitted] == [1]
+    assert round(sum(c.usd for c in costs), 6) == 0.6
+    assert [s.status for s in scenes] == [SceneStatus.failed] + [SceneStatus.planned] * 4
+
+
+async def test_a_scene_waiting_for_a_slot_is_shown_as_queued_not_generating(settings, engine, plan_dict):
+    settings.config.veo.max_concurrent = 1
+    settings.config.veo.job_timeout_sec = 60
+    provider = ScriptedProvider({1: ["timeout"]})
+    service, _, _, job_id = start(settings, engine, plan_dict, provider)
+
+    service.spawn(service.run(job_id))
+    await asyncio.sleep(0.1)
+    _, scenes, _ = state(engine, job_id)
+    await service.shutdown()
+
+    assert [s.status for s in scenes] == [SceneStatus.generating] + [SceneStatus.planned] * 4
+
+
+async def test_a_download_that_fails_once_is_retried_instead_of_paying_for_a_new_clip(settings, engine, plan_dict):
+    provider = ScriptedProvider()
+    provider.download_script = {2: [ProviderError("Veo báo lỗi khi tải clip (ServerError, mã 503).", retryable=True)]}
+    service, _, planner, job_id = start(settings, engine, plan_dict, provider)
+
+    await service.run(job_id)
+
+    job, scenes, costs = state(engine, job_id)
+    assert job.status == JobStatus.assembling
+    assert len(provider.submitted) == 5 and provider.downloads == 6
+    assert len([c for c in costs if c.kind == "veo"]) == 5
+    assert planner.calls == []
+
+
+async def test_a_download_that_keeps_failing_stops_the_job_and_keeps_the_cost(settings, engine, plan_dict):
+    provider = ScriptedProvider()
+    error = ProviderError("Veo báo lỗi khi tải clip (ServerError, mã 503).", retryable=True)
+    provider.download_script = {2: [error] * 20}
+    service, _, planner, job_id = start(settings, engine, plan_dict, provider)
+
+    await service.run(job_id)
+
+    job, scenes, costs = state(engine, job_id)
+    assert job.status == JobStatus.failed
+    assert "Cảnh 2" in job.error and "mã 503" in job.error
+    assert any("cảnh 2" in c.detail for c in costs)  # Veo rendered it, so it is paid for
+    assert planner.calls == []
+    log = " | ".join(messages(settings, job_id))
+    assert "op-" in log  # the operation name is on record, so the clip can still be fetched by hand
+
+
+async def test_an_operation_that_timed_out_is_logged_and_counted_as_possibly_charged(settings, engine, plan_dict):
+    settings.config.veo.job_timeout_sec = 0.3
+    provider = ScriptedProvider({1: ["timeout", "ok"]})
+    service, _, _, job_id = start(settings, engine, plan_dict, provider, rewritten(plan_dict, 1))
+
+    await service.run(job_id)
+
+    job, _, costs = state(engine, job_id)
+    veo = [c for c in costs if c.kind == "veo"]
+    assert job.status == JobStatus.assembling
+    assert len(veo) == 6  # five clips plus the abandoned operation
+    assert sum(1 for c in veo if "có thể vẫn bị tính tiền" in c.detail) == 1
+    assert any("op-" in line and "cảnh 1" in line for line in messages(settings, job_id))
+
+
+async def test_submit_outlasts_a_longer_overload(settings, engine, plan_dict):
+    overloaded = ProviderError("Veo báo lỗi khi gửi yêu cầu sinh clip (ServerError, mã 429).", retryable=True)
+    provider = ScriptedProvider({1: [overloaded] * 4 + ["ok"]})
+    service, _, _, job_id = start(settings, engine, plan_dict, provider)
+
+    await service.run(job_id)
+
+    assert state(engine, job_id)[0].status == JobStatus.assembling

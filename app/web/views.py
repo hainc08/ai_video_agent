@@ -173,8 +173,10 @@ def scene_rows(plan: Plan) -> list[dict[str, Any]]:
     return rows
 
 
-def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
+def review_context(settings: Settings, job: Job, plan: Plan, spent: float = 0.0) -> dict[str, Any]:
     estimated, estimate_error = plan_estimate(settings, job, plan)
+    # Same rule as POST /approve and the runner: what the job already spent counts.
+    over_cap = estimated is not None and round(estimated.cost_usd + spent, 6) > job.cost_cap_usd
     aspect_error = aspect_problem(settings, job)
     return {
         "job": job,
@@ -185,7 +187,9 @@ def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
         "estimate": estimated,
         "estimate_error": estimate_error,
         # The server enforces the same rule in POST /approve; this only disables the button.
-        "locked": estimated is None or estimated.over_cap or aspect_error is not None,
+        "locked": estimated is None or over_cap or aspect_error is not None,
+        "over_cap": over_cap,
+        "spent": spent,
         "aspect_error": aspect_error,
         "fake_video": settings.secrets.video_provider == "fake",
     }

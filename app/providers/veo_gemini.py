@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import httpx
 from google.genai import errors as genai_errors
 from google.genai import types
 
@@ -15,6 +16,15 @@ from app.providers.base import ClipRequest, ContentFilteredError, PollResult, Pr
 _SUPPORTED_ASPECTS = frozenset({"9:16", "16:9"})
 _BASE_RESOLUTION = "720p"
 _FULL_LENGTH_SEC = 8
+
+
+# What the SDK raises when the request never completed: these are not APIError.
+_NETWORK_ERRORS = (httpx.TransportError, OSError)  # OSError covers TimeoutError and ConnectionError
+_NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout)
+
+
+def _network_error(exc: BaseException, action: str) -> ProviderError:
+    return ProviderError(f"Mất kết nối tới Veo khi {action} ({type(exc).__name__}).", retryable=True)
 
 
 def _provider_error(exc: genai_errors.APIError, action: str) -> ProviderError:
@@ -51,6 +61,15 @@ class VeoProvider:
             )
         except genai_errors.APIError as exc:
             raise _provider_error(exc, "gửi yêu cầu sinh clip") from exc
+        except _NEVER_SENT as exc:
+            raise _network_error(exc, "gửi yêu cầu sinh clip") from exc
+        except _NETWORK_ERRORS as exc:
+            # The request may have arrived: sending it again could pay for the same clip twice.
+            raise ProviderError(
+                f"Mất kết nối khi gửi yêu cầu sinh clip ({type(exc).__name__}); không rõ Veo đã nhận "
+                "yêu cầu chưa nên không tự gửi lại.",
+                retryable=False,
+            ) from exc
         self._operations[operation.name] = operation
         return operation.name
 
@@ -60,6 +79,8 @@ class VeoProvider:
             operation = await self._client.aio.operations.get(current)
         except genai_errors.APIError as exc:
             raise _provider_error(exc, "hỏi trạng thái clip") from exc
+        except _NETWORK_ERRORS as exc:
+            raise _network_error(exc, "hỏi trạng thái clip") from exc
         self._operations[operation_id] = operation
 
         if not operation.done:
@@ -85,4 +106,6 @@ class VeoProvider:
             await self._client.aio.files.download(file=video)
         except genai_errors.APIError as exc:
             raise _provider_error(exc, "tải clip") from exc
+        except _NETWORK_ERRORS as exc:
+            raise _network_error(exc, "tải clip") from exc
         await asyncio.to_thread(video.save, str(path))

@@ -173,10 +173,17 @@ async def approve_plan(request: Request, job_id: str, session: Session = Depends
     estimated, reason = plan_estimate(request.app.state.settings, job, plan)
     if estimated is None:
         raise HTTPException(status_code=409, detail=reason)
-    if estimated.over_cap:
+    spent = jobstore.job_cost_usd(session, job.id)
+    if round(estimated.cost_usd + spent, 6) > job.cost_cap_usd:
+        # The runner counts what the job already spent (planning) against the cap, so this must too.
+        already = (
+            f" cộng {fmt_number(spent)} USD đã dùng là {fmt_number(estimated.cost_usd + spent)} USD,"
+            if spent and not estimated.over_cap
+            else ""
+        )
         raise HTTPException(
             status_code=409,
-            detail=f"Chi phí dự kiến {fmt_number(estimated.cost_usd)} USD vượt trần "
+            detail=f"Chi phí dự kiến {fmt_number(estimated.cost_usd)} USD{already} vượt trần "
             f"{job.cost_cap_usd:g} USD của video này.",
         )
     problem = aspect_problem(request.app.state.settings, job)

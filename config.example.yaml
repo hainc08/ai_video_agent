@@ -61,3 +61,7 @@ assembler:
 
 storage:
   data_dir: data
+
+server:
+  # Tên máy chủ được phép truy cập. Thêm tên máy hoặc IP trong mạng nội bộ nếu mở từ máy khác.
+  allowed_hosts: [localhost, 127.0.0.1, "::1"]

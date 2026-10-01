@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -26,12 +27,31 @@ log = logging.getLogger("app.runner")
 ProviderFactory = Callable[[], VideoProvider]
 PlannerFactory = Callable[[], PlannerBase]
 
-_SUBMIT_TRIES = 3
-_BACKOFF_BASE_SEC = 2.0  # waits 2 s, then 4 s, between submit retries
+_SUBMIT_TRIES = 5  # waits about 2, 4, 8, 16 s: long enough to outlast a short rate limit
+_DOWNLOAD_TRIES = 3
+_BACKOFF_BASE_SEC = 2.0
+_BACKOFF_MAX_SEC = 60.0
+
+
+def _usd(amount: float) -> str:
+    return f"{amount:.2f}".replace(".", ",")
+
+
+async def _backoff(attempt: int) -> None:
+    delay = min(_BACKOFF_MAX_SEC, _BACKOFF_BASE_SEC * 2 ** (attempt - 1))
+    await asyncio.sleep(delay * (1 + random.random() / 4))  # jitter, so parallel scenes do not retry in step
 
 
 class _AttemptFailed(Exception):
     """This attempt produced no usable clip; a rewritten prompt may fix it."""
+
+
+class _TimedOut(_AttemptFailed):
+    """We stopped waiting; the operation may still finish (and be billed) on the provider's side."""
+
+
+class _JobStopped(Exception):
+    """The job stopped while this scene was waiting for a slot: nothing was submitted."""
 
 
 @dataclass
@@ -125,6 +145,19 @@ class GenerationService:
 
         run = _JobRun(job_id=job_id, provider=provider, aspect=aspect, cap_usd=cap_usd)
         pending = [scene.id for scene in plan.scenes if scene.id not in done]
+
+        # Refuse up front a job that cannot finish within its cap, rather than paying for some
+        # clips and then stopping.
+        needed = sum(scene.duration_sec for scene in plan.scenes if scene.id in pending) * provider.price_usd_per_second
+        spent = self._spent(job_id)
+        if pending and spent + needed > cap_usd + 1e-9:
+            self._fail_job(
+                job_id,
+                f"Không sinh clip vì sẽ vượt trần chi phí {cap_usd:g} USD của video này: "
+                f"{len(pending)} clip cần {_usd(needed)} USD, đã dùng {_usd(spent)} USD, "
+                f"tổng {_usd(spent + needed)} USD.",
+            )
+            return
         self._log(job_id, "veo", f"bắt đầu sinh {len(pending)} cảnh (song song tối đa {self._settings.config.veo.max_concurrent})")
 
         results = await asyncio.gather(*(self._scene(run, scene_no) for scene_no in pending), return_exceptions=True)
@@ -158,11 +191,6 @@ class GenerationService:
             cost = scene.duration_sec * run.provider.price_usd_per_second
             if not await self._reserve(run, cost):
                 return
-            self._set_scene(
-                run.job_id, scene_no,
-                status=SceneStatus.generating if attempt == 1 else SceneStatus.regenerating,
-                attempts=attempt, error=None,
-            )
             request = ClipRequest(
                 scene_no=scene_no,
                 prompt=f"{scene.veo_prompt_en}\n\nStyle: {self._current_plan(run.job_id).style_guide}",
@@ -172,6 +200,8 @@ class GenerationService:
 
             try:
                 await self._attempt(run, request, cost, attempt)
+            except _JobStopped:
+                return
             except _AttemptFailed as exc:
                 reason = str(exc)
             except ContentFilteredError as exc:
@@ -179,6 +209,14 @@ class GenerationService:
             except (ProviderError, QCError) as exc:
                 # An API or tooling failure: a rewritten prompt cannot fix it, so stop here.
                 self._scene_failed(run, scene_no, str(exc))
+                return
+            except Exception as exc:
+                # Anything else (a bug, an error the provider did not translate): this scene fails
+                # with a reason and the job stops, instead of one scene taking the whole run down.
+                log.exception("Unexpected error while generating scene %s of job %s", scene_no, run.job_id)
+                self._scene_failed(
+                    run, scene_no, f"Lỗi không mong muốn khi gọi nhà cung cấp video ({type(exc).__name__})"
+                )
                 return
             else:
                 self._set_scene(
@@ -210,14 +248,34 @@ class GenerationService:
         charged = False
         try:
             async with self._slots:
+                if run.stop_reason is not None:
+                    raise _JobStopped  # stopped while this scene waited for a slot: submit nothing
+                # Only now is the scene "generating": while it waits for a slot it shows as queued.
+                self._set_scene(
+                    run.job_id, request.scene_no,
+                    status=SceneStatus.generating if attempt == 1 else SceneStatus.regenerating,
+                    attempts=attempt, error=None,
+                )
                 self._log(run.job_id, "veo", f"cảnh {request.scene_no} → đang sinh…")
                 operation_id = await self._submit(run.provider, request)
-                await self._wait(run.provider, operation_id)
+                # On record, so a clip Veo finishes after we gave up on it can still be fetched by hand.
+                self._log(run.job_id, "veo", f"cảnh {request.scene_no} → Veo đã nhận, mã tác vụ {operation_id}")
+                try:
+                    await self._wait(run.provider, operation_id)
+                except _TimedOut:
+                    # Veo may still finish and bill it: count it, so the cap errs on the safe side.
+                    async with run.money:
+                        self._record_clip_cost(
+                            run, request, attempt, note="quá thời gian chờ, có thể vẫn bị tính tiền"
+                        )
+                        run.reserved_usd -= cost
+                        charged = True
+                    raise
                 async with run.money:
                     self._record_clip_cost(run, request, attempt)
                     run.reserved_usd -= cost
                     charged = True
-                await run.provider.download(operation_id, partial)
+                await self._download(run.provider, operation_id, partial)
             self._set_scene(run.job_id, request.scene_no, status=SceneStatus.generated)
             problems = await check_clip(
                 partial,
@@ -243,8 +301,19 @@ class GenerationService:
             except ProviderError as exc:
                 if not exc.retryable or attempt == _SUBMIT_TRIES:
                     raise
-                await asyncio.sleep(_BACKOFF_BASE_SEC * 2 ** (attempt - 1))
+                await _backoff(attempt)
         raise AssertionError("unreachable: the loop always returns or raises")
+
+    async def _download(self, provider: VideoProvider, operation_id: str, path: Any) -> None:
+        # The clip is already paid for, and fetching it again is free: do not give up on one error.
+        for attempt in range(1, _DOWNLOAD_TRIES + 1):
+            try:
+                await provider.download(operation_id, path)
+                return
+            except ProviderError as exc:
+                if not exc.retryable or attempt == _DOWNLOAD_TRIES:
+                    raise
+                await _backoff(attempt)
 
     async def _wait(self, provider: VideoProvider, operation_id: str) -> None:
         veo = self._settings.config.veo
@@ -264,7 +333,7 @@ class GenerationService:
                 if result.state == "failed":
                     raise _AttemptFailed(result.message or "Veo không sinh được clip")
             if time.monotonic() >= deadline:
-                raise _AttemptFailed(f"quá thời gian chờ ({veo.job_timeout_sec:g} giây) mà clip chưa xong")
+                raise _TimedOut(f"quá thời gian chờ ({veo.job_timeout_sec:g} giây) mà clip chưa xong")
             await asyncio.sleep(veo.poll_interval_sec)
 
     # --- money -----------------------------------------------------------------------
@@ -292,16 +361,17 @@ class GenerationService:
     def _cap_message(self, run: _JobRun) -> str:
         return (
             f"Chạm trần chi phí {run.cap_usd:g} USD của video này "
-            f"(đã dùng {self._spent(run.job_id):.2f} USD) nên dừng sinh clip."
+            f"(đã dùng {_usd(self._spent(run.job_id) + run.reserved_usd)} USD, kể cả clip đang sinh) "
+            "nên dừng sinh clip."
         )
 
-    def _record_clip_cost(self, run: _JobRun, request: ClipRequest, attempt: int) -> None:
+    def _record_clip_cost(self, run: _JobRun, request: ClipRequest, attempt: int, note: str = "") -> None:
         model = self._settings.config.veo.model if run.provider.name == "veo" else run.provider.name
         with Session(self._engine) as session:
             jobstore.record_video_cost(
                 session, run.job_id, provider=run.provider.name, model=model,
                 seconds=request.duration_sec, price_usd_per_second=run.provider.price_usd_per_second,
-                detail=f"cảnh {request.scene_no}, lần {attempt}",
+                detail=f"cảnh {request.scene_no}, lần {attempt}" + (f", {note}" if note else ""),
             )
 
     # --- prompt rewrite --------------------------------------------------------------

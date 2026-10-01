@@ -267,6 +267,7 @@ async def _late_body_request(app, method, path, body, gate):
         "query_string": b"",
         "root_path": "",
         "headers": [
+            (b"host", b"testserver"),
             (b"content-type", b"application/x-www-form-urlencoded"),
             (b"content-length", str(len(body)).encode()),
         ],

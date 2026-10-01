@@ -1,5 +1,6 @@
 from types import SimpleNamespace as NS
 
+import httpx
 import pytest
 from google.genai import errors
 
@@ -234,3 +235,52 @@ def test_veo_is_built_when_key_and_price_are_set(project_root):
 
     assert isinstance(provider, VeoProvider)
     assert provider.price_usd_per_second == 0.1
+
+
+# --- network-level failures (not API errors) ------------------------------------------------
+
+
+async def test_a_network_error_while_polling_is_retryable():
+    client = FakeVeoClient(polls=[httpx.ReadTimeout("timed out"), TimeoutError()])
+    provider = VeoProvider(client, CONFIG)
+    operation_id = await provider.submit(REQUEST)
+
+    for _ in range(2):
+        with pytest.raises(ProviderError) as excinfo:
+            await provider.poll(operation_id)
+        assert excinfo.value.retryable is True
+        assert "kết nối" in str(excinfo.value)
+
+
+async def test_a_submit_that_never_reached_veo_is_retryable():
+    client = FakeVeoClient(start=httpx.ConnectError("connection refused"))
+
+    with pytest.raises(ProviderError) as excinfo:
+        await VeoProvider(client, CONFIG).submit(REQUEST)
+
+    assert excinfo.value.retryable is True
+
+
+async def test_a_submit_that_may_have_reached_veo_is_not_resent():
+    client = FakeVeoClient(start=httpx.ReadTimeout("timed out"))
+
+    with pytest.raises(ProviderError, match="không rõ Veo đã nhận") as excinfo:
+        await VeoProvider(client, CONFIG).submit(REQUEST)
+
+    assert excinfo.value.retryable is False  # resending could pay for the same clip twice
+
+
+async def test_a_network_error_while_downloading_is_retryable(tmp_path):
+    class FlakyDownloads(FakeVeoClient):
+        async def _download(self, *, file):
+            raise httpx.ConnectError("connection reset")
+
+    client = FlakyDownloads(polls=[operation(done=True, videos=[FakeVideo()])])
+    provider = VeoProvider(client, CONFIG)
+    operation_id = await provider.submit(REQUEST)
+    await provider.poll(operation_id)
+
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.download(operation_id, tmp_path / "x.mp4")
+
+    assert excinfo.value.retryable is True
