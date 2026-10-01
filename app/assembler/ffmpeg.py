@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -49,6 +51,8 @@ def check_binaries(cfg: AssemblerConfig) -> dict[str, str]:
 
 _RUN_TIMEOUT_SEC = 900
 MAX_VOICE_SPEED = 1.5  # beyond this a voice sounds wrong, so the rest is cut instead
+_SILENCE = "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.02"
+_TRIM_SILENCE = f"{_SILENCE},areverse,{_SILENCE},areverse"  # both ends
 
 
 class AssemblyError(Exception):
@@ -61,21 +65,43 @@ class FitResult:
     cut: bool  # True when even the fastest allowed tempo did not fit and the end was cut off
 
 
+def _stop(process: subprocess.Popen) -> None:
+    process.kill()
+    with contextlib.suppress(Exception):
+        process.wait(timeout=10)  # until it is gone, Windows keeps its output file locked
+
+
+def _remove(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
+
+
 async def _run(binary: str, args: list[str], *, cwd: Path | None, timeout: float, key: str) -> str:
-    """Run an FFmpeg tool in a thread (asyncio's subprocess API needs the Proactor loop on Windows)."""
+    """Run an FFmpeg tool, waiting for it in a thread (asyncio's own subprocess API needs the
+    Proactor loop on Windows). If the caller is cancelled — the server is stopping — the tool is
+    killed rather than left running with its output file open.
+    """
     try:
-        result = await asyncio.to_thread(
-            subprocess.run, [binary, *args], cwd=cwd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout, check=False,
+        process = subprocess.Popen(
+            [binary, *args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OSError as exc:
         raise AssemblyError(
             f"Không chạy được FFmpeg tại '{binary}' ({type(exc).__name__}). "
             f"Hãy kiểm tra assembler.{key} trong config.yaml."
         ) from exc
-    if result.returncode != 0:
-        raise AssemblyError(f"FFmpeg báo lỗi: {result.stderr.strip()[-600:]}")
-    return result.stdout
+    try:
+        stdout, stderr = await asyncio.to_thread(process.communicate, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _stop(process)
+        raise AssemblyError(f"FFmpeg chạy quá {timeout:g} giây nên đã bị dừng.") from exc
+    except asyncio.CancelledError:
+        _stop(process)
+        raise
+    if process.returncode != 0:
+        raise AssemblyError(f"FFmpeg báo lỗi: {stderr.strip()[-600:]}")
+    return stdout
 
 
 async def run_ffmpeg(
@@ -114,22 +140,35 @@ async def fit_audio(source: Path, target: Path, *, target_sec: float, cfg: Assem
     and whatever still does not fit is cut. Every scene's voice is then as long as its clip,
     so the voices stay aligned with the pictures when they are joined.
     """
-    duration = await probe_duration(source, cfg.ffprobe_path)
-    speed = max(1.0, duration / target_sec)
-    cut = speed > MAX_VOICE_SPEED
-    speed = min(speed, MAX_VOICE_SPEED)
-    filters = ([f"atempo={speed:.4f}"] if speed > 1.001 else []) + ["apad"]
     target.parent.mkdir(parents=True, exist_ok=True)
+    speech = target.with_name(target.stem + ".speech.wav")
     partial = target.with_name(target.stem + ".part.wav")
+    wav = ["-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le"]
     try:
+        # TTS services pad speech with silence (Edge adds most of a second at the end). Counting
+        # that as speech would speed voices up for nothing, so only what is spoken is measured.
+        await run_ffmpeg(cfg.ffmpeg_path, ["-i", str(source), "-af", _TRIM_SILENCE, *wav, str(speech)])
+        try:
+            duration = await probe_duration(speech, cfg.ffprobe_path)
+        except AssemblyError:
+            duration = 0.0
+        if duration < 0.05:
+            # Nothing but silence in the file: the scene simply gets a silent track.
+            spoken, speed, cut = source, 1.0, False
+        else:
+            spoken = speech
+            speed = max(1.0, duration / target_sec)
+            cut = speed > MAX_VOICE_SPEED
+            speed = min(speed, MAX_VOICE_SPEED)
+        filters = ([f"atempo={speed:.4f}"] if speed > 1.001 else []) + ["apad"]
         await run_ffmpeg(
             cfg.ffmpeg_path,
-            ["-i", str(source), "-af", ",".join(filters), "-t", f"{target_sec:.3f}",
-             "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(partial)],
+            ["-i", str(spoken), "-af", ",".join(filters), "-t", f"{target_sec:.3f}", *wav, str(partial)],
         )
         os.replace(partial, target)
     finally:
-        partial.unlink(missing_ok=True)
+        _remove(speech)
+        _remove(partial)
     return FitResult(speed=round(speed, 4), cut=cut)
 
 
@@ -140,6 +179,7 @@ _OUTPUT_FPS = 30
 _LOGO_WIDTH_RATIO = 0.14
 _LOGO_MARGIN_RATIO = 0.04
 _MUSIC_VOLUME = 0.35
+_DURATION_TOLERANCE_SEC = 0.25
 
 
 def _inside(folder: Path, path: Path) -> str:
@@ -177,24 +217,28 @@ async def assemble(
             raise AssemblyError(f"Thiếu file {path.name} nên không ghép được video.")
     width, height = size
     count = len(clips)
-    total = 0.0
-    for voice in voices:
-        total += await probe_duration(voice, cfg.ffprobe_path)
+    # A scene lasts as long as its voice track (which the finisher makes exactly the scene's length).
+    lengths = [await probe_duration(voice, cfg.ffprobe_path) for voice in voices]
+    total = sum(lengths)
 
     inputs: list[str] = []
     for path in [*clips, *voices]:
         inputs += ["-i", _inside(job_folder, path)]
     graph = [
         # Clips can differ in size and frame rate (Veo 720p/24 fps, other aspects): make them uniform.
+        # A clip a little shorter or longer than its scene (providers are not exact) is held on its
+        # last frame or trimmed, so later scenes do not slide away from their voice and subtitle.
         f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
-        f"setsar=1,fps={_OUTPUT_FPS},format=yuv420p[v{i}]"
+        f"setsar=1,fps={_OUTPUT_FPS},format=yuv420p,"
+        f"tpad=stop_mode=clone:stop_duration={lengths[i]:.3f},trim=duration={lengths[i]:.3f},"
+        f"setpts=PTS-STARTPTS[v{i}]"
         for i in range(count)
     ]
     graph.append("".join(f"[v{i}]" for i in range(count)) + f"concat=n={count}:v=1:a=0[joined]")
 
     subtitle_filter = f"subtitles='{_inside(job_folder, subtitles)}'"
     fonts = _inside(job_folder, fonts_dir) if fonts_dir is not None and fonts_dir.is_dir() else None
-    if fonts is not None and ":" not in fonts:
+    if fonts is not None and ":" not in fonts and "'" not in fonts:  # neither can sit in a filter option
         subtitle_filter += f":fontsdir='{fonts}'"
     graph.append(f"[joined]{subtitle_filter}[titled]")
     video_out = "titled"
@@ -242,6 +286,46 @@ async def assemble(
         if partial.stat().st_size > MAX_OUTPUT_BYTES:
             megabytes = partial.stat().st_size / 1024 / 1024
             raise AssemblyError(f"Video ghép xong nặng {megabytes:.0f} MB, vượt giới hạn 100 MB.")
+        made_size, made_sec = await _probe_video(partial, cfg.ffprobe_path)
+        if made_size != size or abs(made_sec - total) > _DURATION_TOLERANCE_SEC:
+            raise AssemblyError(
+                f"Video ghép xong không đúng như mong đợi: {made_size[0]}×{made_size[1]}, {made_sec:.1f} giây "
+                f"(cần {width}×{height}, {total:.1f} giây)."
+            )
         os.replace(partial, output)  # the final name only ever holds a complete video
     finally:
-        partial.unlink(missing_ok=True)
+        _remove(partial)
+
+
+async def _probe_video(path: Path, ffprobe_path: str) -> tuple[tuple[int, int], float]:
+    """Frame size and length of the picture (the video stream, not the container)."""
+    out = await _run(
+        ffprobe_path,
+        ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration",
+         "-of", "json", str(path)],
+        cwd=None, timeout=60, key="ffprobe_path",
+    )
+    try:
+        stream = json.loads(out)["streams"][0]
+        return (int(stream["width"]), int(stream["height"])), float(stream["duration"])
+    except (KeyError, IndexError, ValueError, TypeError):
+        raise AssemblyError(f"Không đọc được video vừa ghép ({path.name}).") from None
+
+
+async def has_stream(path: Path, kind: str, ffprobe_path: str) -> bool:
+    """Whether `path` is a readable media file with a stream of `kind` ("audio" or "video")."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    # A stream that exists but has no size / sample rate is not usable: ffprobe reports a text
+    # file named logo.png as a 0×0 PNG stream.
+    field = "width" if kind == "video" else "sample_rate"
+    try:
+        out = await _run(
+            ffprobe_path,
+            ["-v", "error", "-select_streams", kind[0], "-show_entries", f"stream={field}",
+             "-of", "csv=p=0", str(path)],
+            cwd=None, timeout=60, key="ffprobe_path",
+        )
+    except AssemblyError:
+        return False
+    return any(value.strip().isdigit() and int(value) > 0 for value in out.replace(",", "\n").splitlines())

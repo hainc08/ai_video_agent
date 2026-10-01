@@ -154,3 +154,51 @@ async def test_reassembling_replaces_the_previous_file(tmp_path):
     await assemble(tmp_path, **parts, music=None, logo=None, fonts_dir=None, cfg=CFG)
 
     assert (tmp_path / "final.mp4").stat().st_size > 1000
+
+
+# --- findings from the phase 4 review -------------------------------------------------------
+
+
+def stream_durations(path):
+    video, audio, _ = probe(path)
+    return float(video[0]["duration"]), float(audio[0]["duration"])
+
+
+def raw_clip(path, seconds, fps=24):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg("-f", "lavfi", "-i", f"testsrc2=s=720x1280:r={fps}:d={seconds}", "-c:v", "libx264",
+           "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path))
+
+
+@pytest.mark.parametrize("real_sec", [3.5, 4.6])
+async def test_clips_that_are_not_exactly_their_scene_length_do_not_shift_the_later_scenes(tmp_path, real_sec):
+    parts = await make_job(tmp_path, scenes=((1, "9:16", 4), (2, "9:16", 4), (3, "9:16", 4)))
+    for clip in parts["clips"]:
+        raw_clip(clip, real_sec)  # the provider returned clips a little short / long
+
+    await assemble(tmp_path, **parts, music=None, logo=None, fonts_dir=None, cfg=CFG)
+
+    video_sec, audio_sec = stream_durations(tmp_path / "final.mp4")
+    assert abs(video_sec - 12) <= 0.1  # every scene takes exactly its 4 seconds of picture
+    assert abs(audio_sec - 12) <= 0.1
+
+
+async def test_ntsc_frame_rate_clips_stay_in_step(tmp_path):
+    parts = await make_job(tmp_path, scenes=tuple((n, "9:16", 4) for n in range(1, 5)))
+    for clip in parts["clips"]:
+        raw_clip(clip, 4, fps="30000/1001")
+
+    await assemble(tmp_path, **parts, music=None, logo=None, fonts_dir=None, cfg=CFG)
+
+    video_sec, audio_sec = stream_durations(tmp_path / "final.mp4")
+    assert abs(video_sec - 16) <= 0.1 and abs(audio_sec - 16) <= 0.1
+
+
+async def test_a_fonts_folder_with_an_apostrophe_does_not_break_assembly(tmp_path):
+    parts = await make_job(tmp_path / "job")
+    fonts = tmp_path / "it's fonts"
+    fonts.mkdir()
+
+    await assemble(tmp_path / "job", **parts, music=None, logo=None, fonts_dir=fonts, cfg=CFG)
+
+    assert (tmp_path / "job" / "final.mp4").exists()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import random
@@ -299,7 +300,8 @@ class GenerationService:
                 raise _AttemptFailed("; ".join(problems))
             os.replace(partial, target)  # the final name only ever holds a clip that passed
         finally:
-            partial.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):  # still open if we were cancelled mid-write
+                partial.unlink(missing_ok=True)
             if not charged:
                 async with run.money:
                     run.reserved_usd -= cost

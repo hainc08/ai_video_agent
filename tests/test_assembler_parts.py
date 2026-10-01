@@ -182,3 +182,65 @@ def test_a_font_name_cannot_break_the_style_line():
 
     style = next(line for line in ass.splitlines() if line.startswith("Style: Default"))
     assert style.count(",") == 22
+
+
+# --- findings from the phase 4 review -------------------------------------------------------
+
+
+def speech_then_silence(path, speech_sec, silence_sec, lead_sec=0.0):
+    """Like a TTS file: a stretch of sound with silence before and after it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=24000:duration={speech_sec}",
+         "-af", f"adelay={int(lead_sec * 1000)},apad=pad_dur={silence_sec}", str(path)],
+        check=True,
+    )
+    return path
+
+
+def loudness_after(path, start):
+    out = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-ss", str(start), "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    ).stderr
+    line = next(line for line in out.splitlines() if "mean_volume" in line)
+    return float(line.split("mean_volume:")[1].split("dB")[0])
+
+
+@needs_ffmpeg
+async def test_silence_around_the_speech_does_not_count_towards_its_length(tmp_path):
+    # 3.5 s of speech inside a 5 s file: it fits a 4 s scene without being sped up.
+    source = speech_then_silence(tmp_path / "voice.mp3", speech_sec=3.5, silence_sec=1.2, lead_sec=0.3)
+    target = tmp_path / "scene_01.wav"
+
+    result = await fit_audio(source, target, target_sec=4, cfg=CFG)
+
+    assert (result.speed, result.cut) == (1.0, False)
+    assert abs(await probe_duration(target, "ffprobe") - 4) <= 0.05
+    assert loudness_after(target, 0) > -30  # the speech starts at once, the lead-in is gone
+
+
+@needs_ffmpeg
+async def test_only_the_speech_is_sped_up_when_it_is_really_too_long(tmp_path):
+    source = speech_then_silence(tmp_path / "voice.mp3", speech_sec=4.8, silence_sec=1.0)
+
+    result = await fit_audio(source, tmp_path / "scene_01.wav", target_sec=4, cfg=CFG)
+
+    assert result.speed == pytest.approx(1.2, abs=0.03)  # 4.8 s of speech, not 5.8 s of file
+    assert result.cut is False
+
+
+@needs_ffmpeg
+async def test_a_voice_file_that_is_all_silence_still_becomes_a_track_of_the_right_length(tmp_path):
+    source = tmp_path / "voice.mp3"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+         "-t", "2", str(source)],
+        check=True,
+    )
+
+    result = await fit_audio(source, tmp_path / "scene_01.wav", target_sec=4, cfg=CFG)
+
+    assert (result.speed, result.cut) == (1.0, False)
+    assert abs(await probe_duration(tmp_path / "scene_01.wav", "ffprobe") - 4) <= 0.05

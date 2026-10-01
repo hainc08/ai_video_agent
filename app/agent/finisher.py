@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -10,7 +11,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from app import jobstore
-from app.assembler.ffmpeg import AssemblyError, assemble, fit_audio, output_size
+from app.assembler.ffmpeg import AssemblyError, assemble, fit_audio, has_stream, output_size, probe_duration
 from app.assembler.subtitles import build_ass
 from app.config import Settings
 from app.models import JobStatus
@@ -41,11 +42,11 @@ class Finisher:
             job = jobstore.get_job(session, job_id)
             if job is None or job.status != JobStatus.assembling:
                 return
-            plan = jobstore.load_plan(job)
             voice, aspect = job.voice, job.aspect
 
         # Whatever goes wrong, the job must leave "assembling": the page waits until it does.
         try:
+            plan = jobstore.load_plan(job)
             if plan is None:
                 raise AssemblyError("Job không có plan để ghép video.")
             await self._finish(job_id, plan, voice, aspect)
@@ -91,7 +92,8 @@ class Finisher:
         final = jobstore.final_path(data_dir, job_id)
         await assemble(
             folder, clips=clips, voices=voices, subtitles=subtitles, output=final, size=size,
-            music=self._music(), logo=self._asset(cfg.logo_path), fonts_dir=self._asset(cfg.fonts_dir), cfg=cfg,
+            music=await self._music(job_id), logo=await self._logo(job_id),
+            fonts_dir=self._asset(cfg.fonts_dir), cfg=cfg,
         )
         megabytes = final.stat().st_size / 1024 / 1024
         with Session(self._engine) as session:
@@ -103,7 +105,7 @@ class Finisher:
     async def _voice(self, job_id: str, tts: TTSProvider, scene: Scene, voice: str, slots: asyncio.Semaphore) -> None:
         data_dir = self._settings.data_dir
         target = jobstore.audio_path(data_dir, job_id, scene.id)
-        if target.exists() and target.stat().st_size > 0:
+        if await self._is_fitted(target, scene.duration_sec):
             return  # made by an earlier run: reuse it
         raw = target.with_name(target.stem + ".raw.mp3")
         try:
@@ -119,7 +121,8 @@ class Finisher:
                 raw, target, target_sec=scene.duration_sec, cfg=self._settings.config.assembler
             )
         finally:
-            raw.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                raw.unlink(missing_ok=True)
         note = ""
         if fit.cut:
             note = f" — lời thoại quá dài: đã đọc nhanh ×{fit.speed:.2f} và cắt phần cuối"
@@ -142,12 +145,39 @@ class Finisher:
         path = path if path.is_absolute() else self._settings.root / path
         return path if path.exists() else None
 
-    def _music(self) -> Path | None:
+    async def _is_fitted(self, track: Path, seconds: int) -> bool:
+        """Whether `track` is a usable voice track of exactly the scene's length."""
+        if not track.exists():
+            return False
+        try:
+            duration = await probe_duration(track, self._settings.config.assembler.ffprobe_path)
+        except AssemblyError:
+            return False  # cut short by a crash, or not audio at all: make it again
+        return abs(duration - seconds) <= 0.05
+
+    # Music and logo are optional: one that cannot be read is skipped, never a reason to fail a
+    # job whose clips are already paid for.
+
+    async def _music(self, job_id: str) -> Path | None:
         folder = self._asset(self._settings.config.assembler.music_dir)
         if folder is None or not folder.is_dir():
             return None
-        tracks = sorted(p for p in folder.iterdir() if p.suffix.lower() in _MUSIC_SUFFIXES)
-        return tracks[0] if tracks else None
+        ffprobe = self._settings.config.assembler.ffprobe_path
+        for track in sorted(p for p in folder.iterdir() if p.suffix.lower() in _MUSIC_SUFFIXES):
+            if await has_stream(track, "audio", ffprobe):
+                self._log_line(job_id, "ffmpeg", f"nhạc nền: {track.name}")
+                return track
+            self._log_line(job_id, "ffmpeg", f"bỏ qua nhạc nền '{track.name}' vì không đọc được")
+        return None
+
+    async def _logo(self, job_id: str) -> Path | None:
+        logo = self._asset(self._settings.config.assembler.logo_path)
+        if logo is None:
+            return None
+        if await has_stream(logo, "video", self._settings.config.assembler.ffprobe_path):
+            return logo
+        self._log_line(job_id, "ffmpeg", f"bỏ qua logo '{logo.name}' vì không đọc được")
+        return None
 
     def _fail(self, job_id: str, message: str) -> None:
         try:
