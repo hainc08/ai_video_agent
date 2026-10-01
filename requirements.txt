@@ -13,3 +13,4 @@ httpx
 tenacity
 pytest
 pytest-asyncio
+jsonschema

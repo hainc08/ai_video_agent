@@ -1,7 +1,11 @@
 # Sao chép thành config.yaml. Kiểm tra lại tên model và đơn giá trước khi chạy thật.
 claude:
   model: claude-sonnet-5-5        # đổi sang claude-opus-5-5 nếu cần chất lượng plan cao hơn
-  max_tokens: 4000
+  max_tokens: 16000               # gồm cả phần "thinking" của model; đừng hạ xuống dưới 8000
+  effort: medium                  # low | medium | high | xhigh | max
+  refusal_fallback: true          # nếu model từ chối, API tự thử lại bằng model dự phòng (beta)
+  price_usd_per_mtok_input: 2.0   # đơn giá của model ở trên; sửa lại nếu đổi model
+  price_usd_per_mtok_output: 10.0
 
 veo:
   model: veo-3.1-generate-preview # xem https://ai.google.dev/gemini-api/docs/video
@@ -11,6 +15,7 @@ veo:
   max_concurrent: 3
   job_timeout_sec: 600
   poll_interval_sec: 10
+  est_clip_generation_sec: 120    # ước lượng thời gian sinh 1 clip, dùng cho màn duyệt plan
 
 limits:
   cost_cap_per_job_usd: 5
@@ -34,6 +39,7 @@ assembler:
   subtitle_font: "Be Vietnam Pro"
   music_dir: assets/music
   logo_path: assets/logo.png
+  est_assembly_sec: 90            # ước lượng thời gian TTS + ghép video
 
 storage:
   data_dir: data
