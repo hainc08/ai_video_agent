@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+sse-starlette
+sqlmodel
+pydantic>=2
+pydantic-settings
+pyyaml
+anthropic
+google-genai
+httpx
+tenacity
+pytest
+pytest-asyncio

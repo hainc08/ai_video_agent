@@ -1,0 +1,8 @@
+.env
+config.yaml
+.venv/
+__pycache__/
+*.pyc
+data/
+*.db
+.pytest_cache/

@@ -1,0 +1,39 @@
+# Sao chép thành config.yaml. Kiểm tra lại tên model và đơn giá trước khi chạy thật.
+claude:
+  model: claude-sonnet-5-5        # đổi sang claude-opus-5-5 nếu cần chất lượng plan cao hơn
+  max_tokens: 4000
+
+veo:
+  model: veo-3.1-generate-preview # xem https://ai.google.dev/gemini-api/docs/video
+  resolution: 720p                # 720p cho nháp, 1080p cho bản chính
+  generate_audio: false
+  price_usd_per_second: null      # ĐIỀN đơn giá thực tế trước khi chạy veo thật
+  max_concurrent: 3
+  job_timeout_sec: 600
+  poll_interval_sec: 10
+
+limits:
+  cost_cap_per_job_usd: 5
+  cost_cap_per_day_usd: 20
+  max_regenerations_per_scene: 1
+
+defaults:
+  duration_sec: 30
+  aspect: "9:16"
+  voice: vi-female-north
+  style: "clean corporate office, soft daylight, muted blue palette"
+
+tts:
+  price_usd_per_1k_chars: null
+
+assembler:
+  ffmpeg_path: ffmpeg
+  ffprobe_path: ffprobe
+  output_width: 1080
+  output_height: 1920
+  subtitle_font: "Be Vietnam Pro"
+  music_dir: assets/music
+  logo_path: assets/logo.png
+
+storage:
+  data_dir: data

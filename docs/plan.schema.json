@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VideoPlan",
+  "type": "object",
+  "required": ["idea", "target", "brief", "style_guide", "scenes", "caption_vi"],
+  "additionalProperties": false,
+  "properties": {
+    "idea": { "type": "string", "minLength": 3 },
+    "target": {
+      "type": "object",
+      "required": ["duration_sec", "aspect"],
+      "additionalProperties": false,
+      "properties": {
+        "duration_sec": { "type": "integer", "enum": [15, 30, 60] },
+        "aspect": { "type": "string", "enum": ["9:16", "1:1", "16:9"] },
+        "platform": { "type": "string", "default": "facebook_reels" }
+      }
+    },
+    "brief": {
+      "type": "object",
+      "required": ["audience", "key_message", "hook", "cta"],
+      "additionalProperties": false,
+      "properties": {
+        "audience": { "type": "string" },
+        "key_message": { "type": "string" },
+        "hook": { "type": "string", "description": "Câu mở đầu 3 giây, tiếng Việt" },
+        "cta": { "type": "string" }
+      }
+    },
+    "style_guide": {
+      "type": "string",
+      "description": "Mô tả phong cách tiếng Anh, được nối vào mọi prompt Veo để các cảnh nhất quán"
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["id", "duration_sec", "voiceover_vi", "subtitle_vi", "visual", "camera", "veo_prompt_en"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "duration_sec": { "type": "integer", "enum": [4, 6, 8] },
+          "voiceover_vi": { "type": "string" },
+          "subtitle_vi": { "type": "string" },
+          "visual": { "type": "string", "description": "Mô tả hình ảnh tiếng Việt cho người duyệt" },
+          "camera": { "type": "string" },
+          "veo_prompt_en": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "caption_vi": { "type": "string", "description": "Caption gợi ý để đăng bài" },
+    "music_mood": { "type": "string" }
+  }
+}
