@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
@@ -23,29 +23,34 @@ class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _price() -> Any:
+    # A price of 0 would make a paid run look free; leave it null until the real price is known.
+    return Field(default=None, gt=0, allow_inf_nan=False)
+
+
 class ClaudeConfig(_Section):
     model: str
-    max_tokens: int = 16000
+    max_tokens: int = Field(default=16000, ge=1000)
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     refusal_fallback: bool = True
-    price_usd_per_mtok_input: float | None = None
-    price_usd_per_mtok_output: float | None = None
+    price_usd_per_mtok_input: float | None = _price()
+    price_usd_per_mtok_output: float | None = _price()
 
 
 class VeoConfig(_Section):
     model: str
     resolution: str = "720p"
     generate_audio: bool = False
-    price_usd_per_second: float | None = None
+    price_usd_per_second: float | None = _price()
     max_concurrent: int = Field(default=3, ge=1)
-    job_timeout_sec: int = 600
-    poll_interval_sec: int = 10
-    est_clip_generation_sec: int = 120
+    job_timeout_sec: int = Field(default=600, gt=0)
+    poll_interval_sec: int = Field(default=10, gt=0)
+    est_clip_generation_sec: int = Field(default=120, ge=0)
 
 
 class LimitsConfig(_Section):
-    cost_cap_per_job_usd: float = 5
-    cost_cap_per_day_usd: float = 20
+    cost_cap_per_job_usd: float = Field(default=5, gt=0, allow_inf_nan=False)
+    cost_cap_per_day_usd: float = Field(default=20, gt=0, allow_inf_nan=False)
     max_regenerations_per_scene: int = Field(default=1, ge=0)
 
 
@@ -57,7 +62,7 @@ class DefaultsConfig(_Section):
 
 
 class TTSConfig(_Section):
-    price_usd_per_1k_chars: float | None = None
+    price_usd_per_1k_chars: float | None = _price()
 
 
 class AssemblerConfig(_Section):
@@ -68,7 +73,7 @@ class AssemblerConfig(_Section):
     subtitle_font: str = "Be Vietnam Pro"
     music_dir: str = "assets/music"
     logo_path: str = "assets/logo.png"
-    est_assembly_sec: int = 90
+    est_assembly_sec: int = Field(default=90, ge=0)
 
 
 class StorageConfig(_Section):

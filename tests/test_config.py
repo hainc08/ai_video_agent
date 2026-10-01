@@ -103,3 +103,32 @@ def test_unknown_provider_in_dotenv_is_a_clear_error(project_root):
 
 def test_data_dir_is_resolved_against_the_project_root(settings, project_root):
     assert settings.data_dir == project_root / "data"
+
+
+@pytest.mark.parametrize(
+    "section, line",
+    [
+        ("veo", "price_usd_per_second: 0"),
+        ("veo", "price_usd_per_second: -0.5"),
+        ("veo", "price_usd_per_second: .nan"),
+        ("veo", "job_timeout_sec: 0"),
+        ("claude", "max_tokens: 0"),
+        ("claude", "price_usd_per_mtok_output: 0"),
+        ("limits", "cost_cap_per_job_usd: -1"),
+        ("limits", "cost_cap_per_day_usd: .inf"),
+        ("tts", "price_usd_per_1k_chars: -1"),
+    ],
+)
+def test_prices_caps_and_limits_must_be_positive_finite_numbers(project_root, section, line):
+    sections = {"claude": ["model: m"], "veo": ["model: v"], "limits": [], "tts": []}
+    sections[section].append(line)
+    lines = []
+    for name, entries in sections.items():
+        if entries:
+            lines.append(f"{name}:")
+            lines.extend(f"  {entry}" for entry in entries)
+    text = "\n".join(lines) + "\n"
+    (project_root / "config.yaml").write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match=line.split(":")[0]):
+        load_config(project_root)

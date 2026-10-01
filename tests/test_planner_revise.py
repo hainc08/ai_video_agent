@@ -113,3 +113,17 @@ async def test_rewrite_scene_rejects_an_unknown_scene_before_any_api_call(plan_d
         await make_planner(client).rewrite_scene(Plan.model_validate(plan_dict), 9, "x")
 
     assert client.calls == []
+
+
+async def test_rewrite_scene_is_not_blocked_by_an_issue_that_was_already_in_another_scene(plan_dict):
+    plan_dict["scenes"][0]["subtitle_vi"] = _words(13)  # e.g. left by a hand edit
+    original = Plan.model_validate(plan_dict)
+    from_claude = copy.deepcopy(plan_dict)
+    from_claude["scenes"][1]["voiceover_vi"] = _words(16)
+    client = FakeClient(reply(tool_use(from_claude)))
+
+    result = await make_planner(client).rewrite_scene(original, 2, "sinh động hơn")
+
+    assert result.calls == 1
+    assert result.plan.scenes[1].voiceover_vi == _words(16)
+    assert result.plan.scenes[0] == original.scenes[0]

@@ -1,6 +1,7 @@
 import copy
 from types import SimpleNamespace as NS
 
+import anthropic
 import pytest
 
 from app.agent.planner import (
@@ -48,7 +49,10 @@ class FakeClient:
     def _endpoint(self, name):
         async def create(**kwargs):
             self.calls.append((name, {**kwargs, "messages": list(kwargs["messages"])}))
-            return self._replies.pop(0)
+            outcome = self._replies.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
 
         return create
 
@@ -218,6 +222,35 @@ async def test_truncated_reply_is_never_accepted_as_a_plan(plan_dict):
         await make_planner(client).create_plan(IDEA, OPTIONS)
 
     assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize("stop_reason", ["model_context_window_exceeded", "pause_turn", "stop_sequence", None])
+async def test_tool_input_is_only_accepted_when_the_reply_stopped_for_tool_use(plan_dict, stop_reason):
+    client = FakeClient(reply(tool_use(plan_dict), stop_reason=stop_reason), reply(tool_use(plan_dict)))
+
+    with pytest.raises(PlannerError) as excinfo:
+        await make_planner(client).create_plan(IDEA, OPTIONS)
+
+    assert len(client.calls) == 1
+    assert excinfo.value.input_tokens == 100
+
+
+class FakeAPIError(anthropic.APIError):
+    def __init__(self):
+        Exception.__init__(self, "connection refused sk-secret-should-not-leak")
+
+
+async def test_api_error_becomes_a_planner_error_that_keeps_the_tokens_already_spent(plan_dict):
+    chatty = reply(text("Đây là plan..."), stop_reason="end_turn")
+    client = FakeClient(chatty, FakeAPIError())
+
+    with pytest.raises(PlannerError) as excinfo:
+        await make_planner(client).create_plan(IDEA, OPTIONS)
+
+    assert (excinfo.value.input_tokens, excinfo.value.output_tokens) == (100, 200)
+    assert "Không gọi được Claude API" in str(excinfo.value)
+    assert "FakeAPIError" in str(excinfo.value)
+    assert "sk-secret" not in str(excinfo.value)
 
 
 async def test_refusal_fallback_uses_the_beta_endpoint(plan_dict):

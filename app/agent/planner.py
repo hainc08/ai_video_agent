@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import anthropic
 from anthropic import AsyncAnthropic
 from pydantic import ValidationError
 
@@ -142,6 +143,10 @@ class Planner:
             f"Sau đó gọi tool {TOOL_NAME} với plan đầy đủ."
         )
 
+        # Issues the plan already had outside this rewrite (e.g. from a hand edit) are not
+        # Claude's to fix here: everything except the rewritten scene is discarded anyway.
+        known = set(validate_plan(plan, duration_sec=plan.target.duration_sec, aspect=plan.target.aspect))
+
         def keep_only_rewritten_scene(candidate: Plan) -> Plan:
             rewritten = next((scene for scene in candidate.scenes if scene.id == scene_id), None)
             if rewritten is None:
@@ -154,6 +159,7 @@ class Planner:
             duration_sec=plan.target.duration_sec,
             aspect=plan.target.aspect,
             finalize=keep_only_rewritten_scene,
+            known_issues=known,
         )
 
     async def _run(
@@ -163,13 +169,24 @@ class Planner:
         duration_sec: int,
         aspect: str,
         finalize: Callable[[Plan], Plan] | None = None,
+        known_issues: frozenset[str] | set[str] = frozenset(),
     ) -> PlannerResult:
         messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         calls = input_tokens = output_tokens = 0
         errors: list[str] = []
 
         for _ in range(1 + MAX_FIX_ATTEMPTS):
-            response = await self._call(messages)
+            try:
+                response = await self._call(messages)
+            except anthropic.APIError as exc:
+                # Keep what earlier calls cost, and name the error class only: an API
+                # exception's text may quote the request.
+                raise PlannerError(
+                    f"Không gọi được Claude API ({type(exc).__name__}). "
+                    "Hãy kiểm tra ANTHROPIC_API_KEY và kết nối mạng rồi thử lại.",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                ) from exc
             calls += 1
             input_tokens += response.usage.input_tokens
             output_tokens += response.usage.output_tokens
@@ -179,7 +196,7 @@ class Planner:
                 raise PlannerRefusedError(
                     "Claude từ chối lập plan cho ý tưởng này. Hãy thử diễn đạt lại ý tưởng.", **spent
                 )
-            if response.stop_reason == "max_tokens":
+            if response.stop_reason in ("max_tokens", "model_context_window_exceeded"):
                 raise PlannerError(
                     "Plan bị cắt giữa chừng vì chạm claude.max_tokens. "
                     "Hãy tăng giá trị này trong config.yaml.",
@@ -187,6 +204,13 @@ class Planner:
                 )
 
             tool_uses = [block for block in response.content if block.type == "tool_use"]
+            if tool_uses and response.stop_reason != "tool_use":
+                # The turn did not end at the tool call, so its input may be incomplete.
+                raise PlannerError(
+                    f"Claude dừng bất thường khi đang gửi plan (stop_reason={response.stop_reason}). "
+                    "Hãy thử lại.",
+                    **spent,
+                )
             # Pass the content back unchanged: it carries the model's thinking blocks.
             messages.append({"role": "assistant", "content": response.content})
 
@@ -200,7 +224,7 @@ class Planner:
                 )
                 continue
 
-            plan, errors = self._check(tool_uses[0].input, duration_sec, aspect, finalize)
+            plan, errors = self._check(tool_uses[0].input, duration_sec, aspect, finalize, known_issues)
             if plan is not None:
                 return PlannerResult(
                     plan=plan,
@@ -235,6 +259,7 @@ class Planner:
         duration_sec: int,
         aspect: str,
         finalize: Callable[[Plan], Plan] | None = None,
+        known_issues: frozenset[str] | set[str] = frozenset(),
     ) -> tuple[Plan | None, list[str]]:
         try:
             plan = Plan.model_validate(raw)
@@ -246,7 +271,11 @@ class Planner:
             ]
         except PlanMergeError as exc:
             return None, [str(exc)]
-        errors = validate_plan(plan, duration_sec=duration_sec, aspect=aspect)
+        errors = [
+            error
+            for error in validate_plan(plan, duration_sec=duration_sec, aspect=aspect)
+            if error not in known_issues
+        ]
         return (None, errors) if errors else (plan, [])
 
     async def _call(self, messages: list[dict[str, Any]]) -> Any:
