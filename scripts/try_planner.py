@@ -1,7 +1,7 @@
-"""Manual smoke run of the planner against the real Claude API (costs a few cents).
+"""Manual smoke run of the planner against the real LLM API (costs a cent or two).
 
 Usage:  .venv\\Scripts\\python scripts\\try_planner.py "5 việc sếp không biết bạn đang làm bằng AI"
-Needs ANTHROPIC_API_KEY in .env.
+Needs the key of the provider chosen by LLM_PROVIDER in .env (GEMINI_API_KEY by default).
 """
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.agent.estimator import claude_cost_usd, estimate  # noqa: E402
-from app.agent.planner import PlanOptions, build_planner  # noqa: E402
+from app.agent.estimator import estimate, llm_cost_usd  # noqa: E402
+from app.agent.factory import build_planner  # noqa: E402
+from app.agent.planner import PlanOptions  # noqa: E402
 from app.config import load_settings  # noqa: E402
 
 
@@ -27,7 +28,7 @@ async def main(idea: str) -> None:
     print(json.dumps(result.plan.to_dict(), ensure_ascii=False, indent=2))
     print(f"\nmodel={result.model} calls={result.calls} "
           f"tokens_in={result.input_tokens} tokens_out={result.output_tokens}")
-    print(f"claude cost: ${claude_cost_usd(result.input_tokens, result.output_tokens, settings.config.claude)}")
+    print(f"llm cost: ${llm_cost_usd(result.input_tokens, result.output_tokens, settings.llm)}")
     print(estimate(result.plan, settings.config, video_provider=settings.secrets.video_provider))
 
 

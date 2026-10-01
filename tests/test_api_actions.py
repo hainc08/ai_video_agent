@@ -110,7 +110,7 @@ def test_a_failed_revise_keeps_the_plan_and_shows_the_error(start_app, settings,
 
     assert (body["status"], body["plan_version"], body["error"]) == ("awaiting_approval", 1, "Claude từ chối viết lại.")
     assert body["plan"] == plan_dict
-    assert "Claude từ chối viết lại." in page and "PLAN DO CLAUDE ĐỀ XUẤT" in page
+    assert "Claude từ chối viết lại." in page and "PLAN DO AI ĐỀ XUẤT" in page
 
 
 # --- manual scene edit ----------------------------------------------------------

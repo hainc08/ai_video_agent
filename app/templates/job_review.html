@@ -4,7 +4,7 @@
 <section class="review">
   {% if job.error %}<div class="warn-box" role="alert">{{ job.error }}</div>{% endif %}
   <div class="review-head">
-    <div class="eyebrow">PLAN DO CLAUDE ĐỀ XUẤT</div>
+    <div class="eyebrow">PLAN DO AI ĐỀ XUẤT</div>
     <h1>{{ job.idea }}</h1>
     <div class="meta">{{ job.duration_sec }} giây · {{ job.aspect }} · {{ rows|length }} cảnh · Giọng: {{ voice }}</div>
   </div>
@@ -68,7 +68,7 @@
     {% endif %}
   </div>
   <form class="card stack" hx-post="/api/jobs/{{ job.id }}/revise" hx-swap="none" hx-disabled-elt="find button">
-    <label class="card-title" for="feedback">Góp ý cho Claude</label>
+    <label class="card-title" for="feedback">Góp ý cho AI</label>
     <textarea id="feedback" name="feedback" rows="3" required maxlength="2000" placeholder="Ví dụ: hook mạnh hơn, cảnh 3 dùng bảng tính Excel"></textarea>
     <button type="submit" class="btn-outline">Yêu cầu viết lại plan</button>
   </form>

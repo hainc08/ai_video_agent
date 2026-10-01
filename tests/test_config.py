@@ -132,3 +132,37 @@ def test_prices_caps_and_limits_must_be_positive_finite_numbers(project_root, se
 
     with pytest.raises(ConfigError, match=line.split(":")[0]):
         load_config(project_root)
+
+
+def test_gemini_is_the_default_llm(settings):
+    assert settings.secrets.llm_provider == "gemini"
+    assert settings.llm is settings.config.gemini
+    assert settings.llm.model == "gemini-3.8-flash"
+    assert settings.llm.max_output_tokens == 16000
+    assert (settings.llm.price_usd_per_mtok_input, settings.llm.price_usd_per_mtok_output) == (0.75, 3.75)
+
+
+def test_llm_provider_can_be_switched_to_claude(project_root):
+    (project_root / ".env").write_text("LLM_PROVIDER=claude\n", encoding="utf-8")
+
+    settings = load_settings(project_root)
+
+    assert settings.llm is settings.config.claude
+    assert settings.llm.model == "claude-sonnet-5-5"
+
+
+def test_config_without_a_section_for_the_active_provider_is_a_clear_error(project_root):
+    (project_root / "config.yaml").write_text("claude:\n  model: m\nveo:\n  model: v\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="gemini"):
+        load_settings(project_root)
+
+
+def test_claude_section_is_optional_when_gemini_is_used(project_root):
+    (project_root / "config.yaml").write_text("gemini:\n  model: g\nveo:\n  model: v\n", encoding="utf-8")
+
+    settings = load_settings(project_root)
+
+    assert settings.config.claude is None
+    assert settings.llm.model == "g"
+

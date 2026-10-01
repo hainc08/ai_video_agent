@@ -1,4 +1,7 @@
-"""Claude planner: idea -> validated Plan, through the strict `submit_plan` tool."""
+"""Planner: idea -> validated Plan. Shared base plus the Claude implementation (strict `submit_plan` tool).
+
+The Gemini implementation lives in app.agent.gemini_planner; app.agent.factory picks one.
+"""
 from __future__ import annotations
 
 import json
@@ -36,7 +39,7 @@ class PlannerError(Exception):
 
 
 class PlannerRefusedError(PlannerError):
-    """Claude declined the request (stop_reason == "refusal")."""
+    """The model declined the request (a refusal or a content filter)."""
 
 
 class PlanMergeError(Exception):
@@ -99,12 +102,15 @@ def _keep_target_note(plan: Plan) -> str:
     )
 
 
-class Planner:
-    def __init__(self, client: Any, config: ClaudeConfig, system_prompt: str) -> None:
-        self._client = client
-        self._config = config
-        self.system_prompt = system_prompt
-        self._tool = build_tool()
+class PlannerBase:
+    """What every LLM provider's planner shares: the three requests and the plan checks.
+
+    A provider subclass supplies `_submit` (how the model is told to hand the plan back)
+    and `_run` (the conversation with its API, including the fix-and-retry loop).
+    """
+
+    system_prompt: str
+    _submit: str
 
     async def create_plan(self, idea: str, options: PlanOptions) -> PlannerResult:
         idea = idea.strip()
@@ -116,7 +122,7 @@ class Planner:
             f"Tỉ lệ khung hình: {options.aspect}\n"
             f"Phong cách hình ảnh: {options.style}\n"
             f"Giọng đọc: {options.voice}\n\n"
-            f"Lập plan cho ý tưởng trên rồi gọi tool {TOOL_NAME}."
+            f"Lập plan cho ý tưởng trên rồi {self._submit}."
         )
         return await self._run(prompt, duration_sec=options.duration_sec, aspect=options.aspect)
 
@@ -128,7 +134,7 @@ class Planner:
             f"Đây là plan hiện tại:\n<plan>\n{_plan_json(plan)}\n</plan>\n\n"
             f"Góp ý của người dùng:\n<feedback>{feedback}</feedback>\n\n"
             "Sửa plan theo góp ý, giữ nguyên những phần không bị nhắc đến. "
-            f"{_keep_target_note(plan)} Sau đó gọi tool {TOOL_NAME} với plan đầy đủ."
+            f"{_keep_target_note(plan)} Sau đó {self._submit}."
         )
         return await self._run(prompt, duration_sec=plan.target.duration_sec, aspect=plan.target.aspect)
 
@@ -140,11 +146,11 @@ class Planner:
             f"Đây là plan hiện tại:\n<plan>\n{_plan_json(plan)}\n</plan>\n\n"
             f"Chỉ viết lại cảnh {scene_id}, giữ nguyên thời lượng của cảnh đó và mọi phần khác của plan.\n"
             f"Yêu cầu:\n<feedback>{feedback}</feedback>\n\n"
-            f"Sau đó gọi tool {TOOL_NAME} với plan đầy đủ."
+            f"Sau đó {self._submit}."
         )
 
         # Issues the plan already had outside this rewrite (e.g. from a hand edit) are not
-        # Claude's to fix here: everything except the rewritten scene is discarded anyway.
+        # the model's to fix here: everything except the rewritten scene is discarded anyway.
         known = set(validate_plan(plan, duration_sec=plan.target.duration_sec, aspect=plan.target.aspect))
 
         def keep_only_rewritten_scene(candidate: Plan) -> Plan:
@@ -161,6 +167,54 @@ class Planner:
             finalize=keep_only_rewritten_scene,
             known_issues=known,
         )
+
+    async def _run(
+        self,
+        prompt: str,
+        *,
+        duration_sec: int,
+        aspect: str,
+        finalize: Callable[[Plan], Plan] | None = None,
+        known_issues: frozenset[str] | set[str] = frozenset(),
+    ) -> PlannerResult:
+        raise NotImplementedError
+
+    def _check(
+        self,
+        raw: Any,
+        duration_sec: int,
+        aspect: str,
+        finalize: Callable[[Plan], Plan] | None = None,
+        known_issues: frozenset[str] | set[str] = frozenset(),
+    ) -> tuple[Plan | None, list[str]]:
+        try:
+            plan = Plan.model_validate(raw)
+            if finalize is not None:
+                plan = finalize(plan)
+        except ValidationError as exc:
+            return None, [
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()
+            ]
+        except PlanMergeError as exc:
+            return None, [str(exc)]
+        errors = [
+            error
+            for error in validate_plan(plan, duration_sec=duration_sec, aspect=aspect)
+            if error not in known_issues
+        ]
+        return (None, errors) if errors else (plan, [])
+
+
+class Planner(PlannerBase):
+    """Claude: the plan comes back as the input of the strict `submit_plan` tool."""
+
+    _submit = f"gọi tool {TOOL_NAME} với plan đầy đủ"
+
+    def __init__(self, client: Any, config: ClaudeConfig, system_prompt: str) -> None:
+        self._client = client
+        self._config = config
+        self.system_prompt = system_prompt
+        self._tool = build_tool()
 
     async def _run(
         self,
@@ -253,31 +307,6 @@ class Planner:
             output_tokens=output_tokens,
         )
 
-    def _check(
-        self,
-        raw: Any,
-        duration_sec: int,
-        aspect: str,
-        finalize: Callable[[Plan], Plan] | None = None,
-        known_issues: frozenset[str] | set[str] = frozenset(),
-    ) -> tuple[Plan | None, list[str]]:
-        try:
-            plan = Plan.model_validate(raw)
-            if finalize is not None:
-                plan = finalize(plan)
-        except ValidationError as exc:
-            return None, [
-                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()
-            ]
-        except PlanMergeError as exc:
-            return None, [str(exc)]
-        errors = [
-            error
-            for error in validate_plan(plan, duration_sec=duration_sec, aspect=aspect)
-            if error not in known_issues
-        ]
-        return (None, errors) if errors else (plan, [])
-
     async def _call(self, messages: list[dict[str, Any]]) -> Any:
         request: dict[str, Any] = {
             "model": self._config.model,
@@ -297,12 +326,25 @@ class Planner:
         return await self._client.messages.create(**request)
 
 
-def build_planner(settings: Settings) -> Planner:
+_CLAUDE_OUTPUT_RULE = (
+    f"\n\nCách trả kết quả: gọi tool `{TOOL_NAME}` đúng một lần với plan đầy đủ. "
+    "Không viết gì ngoài lời gọi tool."
+)
+
+
+def load_system_prompt() -> str:
+    """The provider-neutral part of the system prompt; each provider adds how to hand the plan back."""
+    return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").rstrip()
+
+
+def build_claude_planner(settings: Settings) -> Planner:
     api_key = settings.secrets.anthropic_key()
     if not api_key:
         raise PlannerError("Thiếu ANTHROPIC_API_KEY trong file .env.")
+    if settings.config.claude is None:
+        raise PlannerError("Thiếu mục 'claude:' trong config.yaml.")
     return Planner(
         AsyncAnthropic(api_key=api_key),
         settings.config.claude,
-        SYSTEM_PROMPT_PATH.read_text(encoding="utf-8"),
+        load_system_prompt() + _CLAUDE_OUTPUT_RULE,
     )

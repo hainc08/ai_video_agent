@@ -34,7 +34,7 @@ def test_posting_an_idea_creates_a_job_and_plans_it_in_the_background(start_app,
     assert (body["duration_sec"], body["aspect"], body["voice"], body["style"], body["cost_cap_usd"]) == (
         60, "1:1", "vi-male-north", "minimal", 8.0)
     assert body["plan"] == plan_dict
-    assert body["cost_usd"] == 0.022
+    assert body["cost_usd"] == 0.00825
     assert planner.calls == [
         ("create_plan", IDEA, PlanOptions(
             duration_sec=60, aspect="1:1", voice="vi-male-north",
@@ -119,7 +119,7 @@ def test_planning_page_polls_and_marks_step_two(start_app, settings):
 
     text = client.get(f"/jobs/{job_id}").text
 
-    assert "Claude đang lập plan…" in text
+    assert "AI đang lập plan…" in text
     assert f'hx-get="/jobs/{job_id}"' in text
     assert 'hx-trigger="every 2s"' in text
     assert 'hx-select="#shell"' in text
@@ -131,7 +131,7 @@ def test_planning_page_says_rewriting_when_a_plan_already_exists(start_app, sett
     client, _ = start_app()
     job_id = seed_job(client.app.state.engine, settings.data_dir, plan_dict=plan_dict, status=JobStatus.planning)
 
-    assert "Claude đang viết lại plan…" in client.get(f"/jobs/{job_id}").text
+    assert "AI đang viết lại plan…" in client.get(f"/jobs/{job_id}").text
 
 
 def test_job_list_is_newest_first(start_app, settings):

@@ -23,11 +23,12 @@ config.example.yaml       mẫu cấu hình model, đơn giá, giới hạn chi 
 
 1. Cài Python 3.11+ và FFmpeg (thêm vào PATH; gõ `ffmpeg -version` để kiểm tra).
 2. Cài Claude Code theo hướng dẫn: https://docs.claude.com/en/docs/claude-code/overview
-3. Lấy API key:
-   - Claude: https://console.anthropic.com
-   - Gemini (Veo): Google AI Studio, bật thanh toán cho project
-4. Giải nén gói, sao chép `.env.example` → `.env` và `config.example.yaml` → `config.yaml`, điền key.
-   Có thể để trống key Gemini lúc đầu — mặc định dùng provider giả, không tốn tiền.
+3. Lấy API key Gemini ở Google AI Studio (https://aistudio.google.com). Một key dùng cho cả lập plan
+   (Gemini) lẫn sinh video (Veo); muốn chạy Veo thật thì bật thanh toán cho project.
+   Key Claude (https://console.anthropic.com) chỉ cần khi đặt `LLM_PROVIDER=claude`.
+4. Giải nén gói, sao chép `.env.example` → `.env` và điền `GEMINI_API_KEY`. `config.example.yaml` được dùng
+   mặc định; chỉ sao chép thành `config.yaml` khi muốn đổi model, đơn giá hay giới hạn.
+   Video mặc định dùng provider giả (`VIDEO_PROVIDER=fake`), không tốn tiền.
 
 ## Giao cho Claude Code
 

@@ -34,7 +34,8 @@ async def test_create_stores_the_plan_and_the_claude_cost(settings, engine, plan
     assert job.status == JobStatus.awaiting_approval
     assert plan.to_dict() == plan_dict
     assert (settings.data_dir / "jobs" / job_id / "plan.json").exists()
-    assert sorted(cost.usd for cost in costs) == [0.002, 0.02]
+    assert sorted(cost.usd for cost in costs) == [0.00075, 0.0075]
+    assert {cost.kind for cost in costs} == {"gemini"}
     assert planner.calls == [
         (
             "create_plan",

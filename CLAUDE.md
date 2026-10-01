@@ -7,7 +7,7 @@ File này hướng dẫn Claude Code khi làm việc trong repo. Đọc hết tr
 Web app nhận một ý tưởng (1–3 câu tiếng Việt) và tự động tạo video ngắn 9:16 (15–60 giây)
 cho Facebook Reels / TikTok / Shorts:
 
-ý tưởng → Claude lập plan → người dùng duyệt → Veo sinh clip → kiểm tra → TTS + phụ đề → FFmpeg ghép MP4
+ý tưởng → LLM (Gemini) lập plan → người dùng duyệt → Veo sinh clip → kiểm tra → TTS + phụ đề → FFmpeg ghép MP4
 
 Người dùng: chủ kênh "AI Văn Phòng" (tips AI cho dân văn phòng 25–40 tuổi), nội dung faceless,
 tone chuyên nghiệp, lời thoại tiếng Việt.
@@ -20,7 +20,7 @@ tone chuyên nghiệp, lời thoại tiếng Việt.
 | `docs/ARCHITECTURE.md` | Luồng agent, kiến trúc, trạng thái job, API |
 | `docs/UI_SPEC.md` | 4 màn hình, trường dữ liệu, hành vi |
 | `docs/ui-mockups/*.dc.html` | Mockup thiết kế tham khảo (màu, font, bố cục) |
-| `docs/plan.schema.json` | JSON Schema của plan — hợp đồng giữa Claude và hệ thống |
+| `docs/plan.schema.json` | JSON Schema của plan — hợp đồng giữa LLM và hệ thống |
 | `prompts/planner_system.md` | System prompt cho bước lập plan |
 | `TASKS.md` | Danh sách việc theo giai đoạn — làm theo thứ tự |
 
@@ -28,7 +28,9 @@ tone chuyên nghiệp, lời thoại tiếng Việt.
 
 - Video: **Veo 3.1 qua Gemini API chính thức** (`google-genai` SDK). KHÔNG tự động hóa trang Google Flow,
   KHÔNG dùng API bên thứ ba bọc Flow.
-- LLM: Claude API (Anthropic Python SDK), dùng **tool use** để ép output đúng `plan.schema.json`.
+- LLM lập plan: **Gemini API** (`google-genai`, JSON theo `plan.schema.json`) — chủ dự án chốt ngày 01/10/2026
+  để chỉ cần một key cho cả kịch bản lẫn video. Claude (Anthropic SDK, tool use) vẫn chọn được bằng
+  `LLM_PROVIDER=claude` trong `.env`; các tài liệu cũ ghi "Claude lập plan" hiểu là "LLM lập plan".
 - Có bước người dùng duyệt plan trước khi gọi Veo (vì Veo tính tiền).
 - Không sinh chữ trong video bằng Veo; chữ/phụ đề làm bằng FFmpeg.
 - Sinh lại clip lỗi tối đa 1 lần/cảnh.

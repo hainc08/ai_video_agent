@@ -1,4 +1,15 @@
 # Sao chép thành config.yaml. Kiểm tra lại tên model và đơn giá trước khi chạy thật.
+# Model lập plan. Chọn nhà cung cấp bằng LLM_PROVIDER trong .env (mặc định: gemini).
+gemini:
+  model: gemini-3.8-flash         # xem https://ai.google.dev/gemini-api/docs/models
+  fallback_models:                # dùng lần lượt khi model trên quá tải (503) hoặc hết hạn mức (429)
+    - gemini-3.7-flash            # cùng đơn giá với model chính
+    - gemini-3.6-flash
+  max_output_tokens: 16000        # gồm cả phần "thinking" của model
+  price_usd_per_mtok_input: 0.75  # giá đến hết 31/12/2026; sau đó 1.50 — xem trang pricing
+  price_usd_per_mtok_output: 3.75 # giá đến hết 31/12/2026; sau đó 7.50
+
+# Chỉ dùng khi LLM_PROVIDER=claude (cần ANTHROPIC_API_KEY).
 claude:
   model: claude-sonnet-5-5        # đổi sang claude-opus-5-5 nếu cần chất lượng plan cao hơn
   max_tokens: 16000               # gồm cả phần "thinking" của model; đừng hạ xuống dưới 8000

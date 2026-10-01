@@ -17,6 +17,7 @@ _ENV_VARS = (
     "VIDEO_PROVIDER",
     "TTS_PROVIDER",
     "FPT_TTS_API_KEY",
+    "LLM_PROVIDER",
 )
 
 

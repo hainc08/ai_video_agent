@@ -1,7 +1,7 @@
 import pytest
 
-from app.agent.estimator import PriceNotConfiguredError, claude_cost_usd, estimate
-from app.config import ClaudeConfig
+from app.agent.estimator import PriceNotConfiguredError, estimate, llm_cost_usd
+from app.config import ClaudeConfig, GeminiConfig
 from app.schemas import Plan
 
 
@@ -85,13 +85,16 @@ def test_tts_cost_is_added_when_a_price_is_configured(plan, settings):
     assert result.cost_usd_max == result.cost_usd
 
 
-def test_claude_cost_from_token_counts():
+def test_llm_cost_from_token_counts():
     config = ClaudeConfig(model="m", price_usd_per_mtok_input=2.0, price_usd_per_mtok_output=10.0)
 
-    assert claude_cost_usd(1_000_000, 100_000, config) == 3.0
-    assert claude_cost_usd(0, 0, config) == 0
+    assert llm_cost_usd(1_000_000, 100_000, config) == 3.0
+    assert llm_cost_usd(0, 0, config) == 0
+
+    gemini = GeminiConfig(model="g", price_usd_per_mtok_input=0.75, price_usd_per_mtok_output=3.75)
+    assert llm_cost_usd(1_000_000, 1_000_000, gemini) == 4.5
 
 
-def test_claude_cost_without_prices_is_an_error():
-    with pytest.raises(PriceNotConfiguredError, match="claude.price_usd_per_mtok"):
-        claude_cost_usd(1000, 1000, ClaudeConfig(model="m"))
+def test_llm_cost_without_prices_is_an_error():
+    with pytest.raises(PriceNotConfiguredError, match="price_usd_per_mtok"):
+        llm_cost_usd(1000, 1000, ClaudeConfig(model="m"))

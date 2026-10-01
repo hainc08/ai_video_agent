@@ -5,7 +5,7 @@ import math
 
 from pydantic import BaseModel
 
-from app.config import AppConfig, ClaudeConfig
+from app.config import AppConfig, ClaudeConfig, GeminiConfig
 from app.schemas import Plan
 
 
@@ -68,10 +68,10 @@ def estimate(
     )
 
 
-def claude_cost_usd(input_tokens: int, output_tokens: int, config: ClaudeConfig) -> float:
+def llm_cost_usd(input_tokens: int, output_tokens: int, config: ClaudeConfig | GeminiConfig) -> float:
     if config.price_usd_per_mtok_input is None or config.price_usd_per_mtok_output is None:
         raise PriceNotConfiguredError(
-            "Chưa điền claude.price_usd_per_mtok_input / claude.price_usd_per_mtok_output trong config.yaml."
+            "Chưa điền price_usd_per_mtok_input / price_usd_per_mtok_output cho model lập plan trong config.yaml."
         )
     cost = (
         input_tokens * config.price_usd_per_mtok_input

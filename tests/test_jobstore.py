@@ -117,8 +117,8 @@ def test_mark_approved_moves_the_job_to_generating(session, data_dir, plan):
 def test_claude_usage_is_recorded_as_cost_entries(session):
     job = jobstore.create_job(session, **FIELDS)
 
-    jobstore.record_claude_usage(
-        session, job.id, action="create_plan", model="claude-sonnet-5-5",
+    jobstore.record_llm_usage(
+        session, job.id, kind="claude", action="create_plan", model="claude-sonnet-5-5",
         input_tokens=1000, output_tokens=2000, config=PRICED,
     )
 
@@ -135,8 +135,8 @@ def test_claude_usage_is_recorded_as_cost_entries(session):
 def test_usage_without_configured_prices_is_recorded_at_zero_cost(session):
     job = jobstore.create_job(session, **FIELDS)
 
-    jobstore.record_claude_usage(
-        session, job.id, action="revise", model="m",
+    jobstore.record_llm_usage(
+        session, job.id, kind="claude", action="revise", model="m",
         input_tokens=10, output_tokens=20, config=ClaudeConfig(model="m"),
     )
 
@@ -148,8 +148,8 @@ def test_usage_without_configured_prices_is_recorded_at_zero_cost(session):
 def test_zero_tokens_record_nothing(session):
     job = jobstore.create_job(session, **FIELDS)
 
-    jobstore.record_claude_usage(
-        session, job.id, action="create_plan", model="m", input_tokens=0, output_tokens=0, config=PRICED,
+    jobstore.record_llm_usage(
+        session, job.id, kind="claude", action="create_plan", model="m", input_tokens=0, output_tokens=0, config=PRICED,
     )
 
     assert session.exec(select(CostEntry)).all() == []

@@ -37,6 +37,15 @@ class ClaudeConfig(_Section):
     price_usd_per_mtok_output: float | None = _price()
 
 
+class GeminiConfig(_Section):
+    model: str
+    # Tried in order when the model above answers 503 (overloaded) or 429 (quota).
+    fallback_models: list[str] = Field(default_factory=list)
+    max_output_tokens: int = Field(default=16000, ge=1000)  # includes the model's thinking
+    price_usd_per_mtok_input: float | None = _price()
+    price_usd_per_mtok_output: float | None = _price()
+
+
 class VeoConfig(_Section):
     model: str
     resolution: str = "720p"
@@ -81,7 +90,9 @@ class StorageConfig(_Section):
 
 
 class AppConfig(_Section):
-    claude: ClaudeConfig
+    # Only the section of the provider chosen by LLM_PROVIDER is required (checked in load_settings).
+    gemini: GeminiConfig | None = None
+    claude: ClaudeConfig | None = None
     veo: VeoConfig
     # default_factory: each AppConfig gets its own section objects (they are mutable).
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
@@ -101,6 +112,7 @@ class Secrets(BaseSettings):
 
     anthropic_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    llm_provider: Literal["gemini", "claude"] = "gemini"
     video_provider: Literal["fake", "veo"] = "fake"
     tts_provider: Literal["fake", "fpt", "google"] = "fake"
     fpt_tts_api_key: SecretStr | None = None
@@ -122,6 +134,15 @@ class Settings:
     def data_dir(self) -> Path:
         path = Path(self.config.storage.data_dir)
         return path if path.is_absolute() else self.root / path
+
+    @property
+    def llm(self) -> GeminiConfig | ClaudeConfig:
+        """Model and prices of the LLM that writes plans (the provider chosen by LLM_PROVIDER)."""
+        provider = self.secrets.llm_provider
+        section = getattr(self.config, provider)
+        if section is None:
+            raise ConfigError(f"Thiếu mục '{provider}:' trong config.yaml (LLM_PROVIDER={provider}).")
+        return section
 
 
 def load_config(root: Path) -> AppConfig:
@@ -150,4 +171,6 @@ def load_settings(root: Path | None = None) -> Settings:
         # Report field names only: the message must never echo a key value.
         fields = ", ".join(str(e["loc"][0]).upper() for e in exc.errors())
         raise ConfigError(f"File .env có giá trị không hợp lệ: {fields}") from exc
-    return Settings(root=root, config=load_config(root), secrets=secrets)
+    settings = Settings(root=root, config=load_config(root), secrets=secrets)
+    settings.llm  # fail now, with a clear message, if the chosen provider has no config section
+    return settings

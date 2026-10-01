@@ -9,7 +9,7 @@ from app.agent.planner import (
     Planner,
     PlannerError,
     PlannerRefusedError,
-    build_planner,
+    build_claude_planner,
     build_tool,
     strict_tool_schema,
 )
@@ -276,13 +276,13 @@ async def test_blank_idea_is_rejected_before_any_api_call(idea):
 
 def test_build_planner_requires_an_api_key(settings):
     with pytest.raises(PlannerError, match="ANTHROPIC_API_KEY"):
-        build_planner(settings)
+        build_claude_planner(settings)
 
 
 def test_build_planner_loads_the_system_prompt_file(project_root):
     (project_root / ".env").write_text("ANTHROPIC_API_KEY=sk-test\n", encoding="utf-8")
 
-    planner = build_planner(load_settings(project_root))
+    planner = build_claude_planner(load_settings(project_root))
 
     assert "submit_plan" in planner.system_prompt
     assert "AI Văn Phòng" in planner.system_prompt

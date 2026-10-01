@@ -8,8 +8,8 @@ from pathlib import Path
 from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
-from app.agent.estimator import PriceNotConfiguredError, claude_cost_usd
-from app.config import ClaudeConfig
+from app.agent.estimator import PriceNotConfiguredError, llm_cost_usd
+from app.config import ClaudeConfig, GeminiConfig
 from app.models import CostEntry, Job, JobStatus, Scene
 from app.schemas import Plan
 
@@ -114,26 +114,27 @@ def mark_approved(session: Session, job: Job) -> None:
     _save(session, job)
 
 
-def record_claude_usage(
+def record_llm_usage(
     session: Session,
     job_id: str,
     *,
+    kind: str,
     action: str,
     model: str,
     input_tokens: int,
     output_tokens: int,
-    config: ClaudeConfig,
+    config: ClaudeConfig | GeminiConfig,
 ) -> None:
     detail = f"{action} ({model})"
     try:
-        usd_in = claude_cost_usd(input_tokens, 0, config)
-        usd_out = claude_cost_usd(0, output_tokens, config)
+        usd_in = llm_cost_usd(input_tokens, 0, config)
+        usd_out = llm_cost_usd(0, output_tokens, config)
     except PriceNotConfiguredError:
         usd_in = usd_out = 0.0
         detail += " - price not configured"
     for unit, units, usd in (("tokens_in", input_tokens, usd_in), ("tokens_out", output_tokens, usd_out)):
         if units:
-            session.add(CostEntry(job_id=job_id, kind="claude", detail=detail, units=units, unit=unit, usd=usd))
+            session.add(CostEntry(job_id=job_id, kind=kind, detail=detail, units=units, unit=unit, usd=usd))
     session.commit()
 
 

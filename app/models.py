@@ -66,7 +66,7 @@ class Scene(SQLModel, table=True):
 class CostEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     job_id: str = Field(foreign_key="job.id", index=True)
-    kind: str  # "claude" | "veo" | "tts"
+    kind: str  # "gemini" | "claude" | "veo" | "tts"
     detail: str = ""
     units: float
     unit: str  # "tokens_in" | "tokens_out" | "seconds" | "chars"

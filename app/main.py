@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 from app import jobstore
-from app.agent.planner import build_planner
+from app.agent.factory import build_planner
 from app.agent.planning import PlannerFactory, PlanningService
 from app.assembler.ffmpeg import FFmpegNotFoundError, check_binaries
 from app.config import Settings, load_settings

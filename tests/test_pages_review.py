@@ -32,7 +32,7 @@ def test_scene_timeline_adds_up_scene_durations(plan_dict):
 def test_review_shows_the_idea_brief_and_every_scene(start_app, settings, plan_dict):
     job_id, text, _ = review_page(start_app, settings, plan_dict)
 
-    assert "PLAN DO CLAUDE ĐỀ XUẤT" in text
+    assert "PLAN DO AI ĐỀ XUẤT" in text
     assert "<h1>5 việc sếp không biết bạn đang làm bằng AI</h1>" in text
     assert "30 giây · 9:16 · 5 cảnh · Giọng: Nữ · miền Bắc" in text
     for value in plan_dict["brief"].values():

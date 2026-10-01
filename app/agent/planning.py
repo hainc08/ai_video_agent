@@ -10,7 +10,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from app import jobstore
-from app.agent.planner import PlanOptions, Planner, PlannerError, PlannerResult
+from app.agent.planner import PlannerBase, PlannerError, PlannerResult, PlanOptions
 from app.config import Settings
 from app.models import Job, JobStatus
 from app.options import style_prompt
@@ -18,8 +18,8 @@ from app.schemas import Plan
 
 log = logging.getLogger("app.planning")
 
-PlannerFactory = Callable[[], Planner]
-_PlannerCall = Callable[[Planner, Job, Plan | None], Awaitable[PlannerResult]]
+PlannerFactory = Callable[[], PlannerBase]
+_PlannerCall = Callable[[PlannerBase, Job, Plan | None], Awaitable[PlannerResult]]
 
 
 class PlanningService:
@@ -41,7 +41,7 @@ class PlanningService:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def create(self, job_id: str) -> None:
-        async def call(planner: Planner, job: Job, plan: Plan | None) -> PlannerResult:
+        async def call(planner: PlannerBase, job: Job, plan: Plan | None) -> PlannerResult:
             options = PlanOptions(
                 duration_sec=job.duration_sec,
                 aspect=job.aspect,
@@ -53,19 +53,18 @@ class PlanningService:
         await self._run(job_id, "create_plan", call)
 
     async def revise(self, job_id: str, feedback: str) -> None:
-        async def call(planner: Planner, job: Job, plan: Plan | None) -> PlannerResult:
+        async def call(planner: PlannerBase, job: Job, plan: Plan | None) -> PlannerResult:
             return await planner.revise(plan, feedback)
 
         await self._run(job_id, "revise", call)
 
     async def rewrite_scene(self, job_id: str, scene_id: int, feedback: str = "") -> None:
-        async def call(planner: Planner, job: Job, plan: Plan | None) -> PlannerResult:
+        async def call(planner: PlannerBase, job: Job, plan: Plan | None) -> PlannerResult:
             return await planner.rewrite_scene(plan, scene_id, feedback)
 
         await self._run(job_id, "rewrite_scene", call)
 
     async def _run(self, job_id: str, action: str, call: _PlannerCall) -> None:
-        claude = self._settings.config.claude
         version: int | None = None
 
         # Whatever goes wrong, the job must leave "planning": the page polls until it does.
@@ -79,9 +78,10 @@ class PlanningService:
             planner = self._planner_factory()
             result = await call(planner, job, plan)
             with Session(self._engine) as session:
-                jobstore.record_claude_usage(
-                    session, job_id, action=action, model=result.model,
-                    input_tokens=result.input_tokens, output_tokens=result.output_tokens, config=claude,
+                jobstore.record_llm_usage(
+                    session, job_id, kind=self._settings.secrets.llm_provider, action=action,
+                    model=result.model, input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens, config=self._settings.llm,
                 )
                 waiting = self._still_waiting(session, job_id, version)
                 if waiting is not None:
@@ -98,7 +98,7 @@ class PlanningService:
     def _still_waiting(self, session: Session, job_id: str, version: int | None) -> Job | None:
         """The job, if it is still waiting for the plan this task was started for.
 
-        While Claude was working the job may have been approved, cancelled, edited or deleted;
+        While the model was working the job may have been approved, cancelled, edited or deleted;
         writing a late result over that would undo what the user did.
         """
         job = jobstore.get_job(session, job_id)
@@ -119,12 +119,12 @@ class PlanningService:
         input_tokens: int = 0,
         output_tokens: int = 0,
     ) -> None:
-        claude = self._settings.config.claude
+        llm = self._settings.llm
         try:
             with Session(self._engine) as session:
-                jobstore.record_claude_usage(
-                    session, job_id, action=action, model=claude.model,
-                    input_tokens=input_tokens, output_tokens=output_tokens, config=claude,
+                jobstore.record_llm_usage(
+                    session, job_id, kind=self._settings.secrets.llm_provider, action=action,
+                    model=llm.model, input_tokens=input_tokens, output_tokens=output_tokens, config=llm,
                 )
                 waiting = self._still_waiting(session, job_id, version)
                 if waiting is not None:

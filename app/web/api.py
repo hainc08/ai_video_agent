@@ -98,7 +98,7 @@ async def revise_plan(request: Request, job_id: str, session: Session = Depends(
     job = job_or_404(session, job_id)
     _reviewable_plan(job)
     if not feedback:
-        raise HTTPException(status_code=422, detail="Hãy nhập góp ý cho Claude trước khi yêu cầu viết lại.")
+        raise HTTPException(status_code=422, detail="Hãy nhập góp ý trước khi yêu cầu viết lại.")
     if len(feedback) > MAX_FEEDBACK_CHARS:
         raise HTTPException(status_code=422, detail="Góp ý quá dài (tối đa 2.000 ký tự).")
     jobstore.mark_planning(session, job)
@@ -133,7 +133,7 @@ async def edit_scene(request: Request, job_id: str, scene_no: int, session: Sess
         edited = Plan.model_validate(data)
     except ValidationError:
         raise HTTPException(status_code=422, detail="Dữ liệu cảnh không hợp lệ.") from None
-    # A hand-edited plan must meet the same rules as one from Claude: later phases rely on them.
+    # A hand-edited plan must meet the same rules as one from the model: later phases rely on them.
     issues = find_issues(edited, duration_sec=job.duration_sec, aspect=job.aspect)
     if issues:
         raise HTTPException(status_code=422, detail="\n".join(issue.vi for issue in issues))
