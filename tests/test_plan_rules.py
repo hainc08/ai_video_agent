@@ -1,6 +1,6 @@
 import pytest
 
-from app.agent.plan_rules import count_words, validate_plan, word_bounds
+from app.agent.plan_rules import count_words, find_issues, validate_plan, word_bounds
 from app.schemas import Plan
 
 
@@ -121,3 +121,38 @@ def test_blank_brief_field_is_reported(plan_dict):
     plan_dict["brief"]["hook"] = "  "
 
     assert _errors(plan_dict) == ["brief.hook must not be empty"]
+
+
+def _vi(plan_dict):
+    plan = Plan.model_validate(plan_dict)
+    return [issue.vi for issue in find_issues(plan, duration_sec=30, aspect="9:16")]
+
+
+def test_scene_issue_has_a_vietnamese_message_for_the_user(plan_dict):
+    plan_dict["scenes"][0]["voiceover_vi"] = _words(20)
+    plan_dict["scenes"][1]["voiceover_vi"] = _words(13)
+
+    assert _vi(plan_dict) == ["Cảnh 1: lời thoại có 20 từ, tối đa 19 từ cho cảnh 6 giây"]
+
+
+def test_plan_level_issue_has_a_vietnamese_message(plan_dict):
+    for scene in plan_dict["scenes"]:
+        scene["duration_sec"] = 4
+        scene["voiceover_vi"] = _words(10)
+
+    assert _vi(plan_dict) == ["Tổng thời lượng các cảnh là 20 giây, cần trong khoảng 28–32 giây"]
+
+
+def test_every_issue_has_both_languages_and_validate_plan_returns_the_english_ones(plan_dict):
+    plan_dict["brief"]["cta"] = ""
+    plan_dict["scenes"][1]["id"] = 1
+    plan_dict["scenes"][2]["voiceover_vi"] = ""
+    plan_dict["scenes"][3]["subtitle_vi"] = _words(13)
+    plan_dict["scenes"][4]["veo_prompt_en"] = "An office"
+    plan = Plan.model_validate(plan_dict)
+
+    issues = find_issues(plan, duration_sec=60, aspect="1:1")
+
+    assert len(issues) >= 8
+    assert all(issue.en and issue.vi for issue in issues)
+    assert validate_plan(plan, duration_sec=60, aspect="1:1") == [issue.en for issue in issues]
