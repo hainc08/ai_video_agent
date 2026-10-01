@@ -55,6 +55,7 @@ app/
   main.py              # FastAPI app factory (lifespan, routers)
   options.py           # lựa chọn trên form: thời lượng, tỉ lệ, giọng, phong cách
   jobstore.py          # lưu job, phiên bản plan, chi phí
+  events.py            # phát sự kiện của job cho SSE (màn 3)
   web/
     pages.py           # routes HTML: /, /jobs/{id}
     api.py             # routes /api/jobs...

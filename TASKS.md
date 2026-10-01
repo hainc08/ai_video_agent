@@ -25,12 +25,12 @@ Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật d
 - [x] Khóa nút duyệt khi vượt trần
 
 ## Giai đoạn 3 — Sinh video
-- [ ] `providers/base.py`: `VideoProvider` protocol
-- [ ] `providers/fake_video.py`: tạo clip màu có số cảnh bằng FFmpeg, đúng tỉ lệ/thời lượng (dùng khi dev)
-- [ ] `providers/veo_gemini.py`: `generate_videos` + poll operation + tải file; model/tỉ lệ/thời lượng từ config
-- [ ] `runner.py`: chạy song song (Semaphore), timeout, backoff, ghi `CostEntry`, dừng khi chạm trần
-- [ ] `qc.py`: ffprobe kiểm tra tỉ lệ, thời lượng; lỗi → `planner.rewrite_scene` → sinh lại 1 lần
-- [ ] SSE `/api/jobs/{id}/events`; Màn 3 theo mockup
+- [x] `providers/base.py`: `VideoProvider` protocol
+- [x] `providers/fake_video.py`: tạo clip màu có số cảnh bằng FFmpeg, đúng tỉ lệ/thời lượng (dùng khi dev)
+- [x] `providers/veo_gemini.py`: `generate_videos` + poll operation + tải file; model/tỉ lệ/thời lượng từ config
+- [x] `runner.py`: chạy song song (Semaphore), timeout, backoff, ghi `CostEntry`, dừng khi chạm trần
+- [x] `qc.py`: ffprobe kiểm tra tỉ lệ, thời lượng; lỗi → `planner.rewrite_scene` → sinh lại 1 lần
+- [x] SSE `/api/jobs/{id}/events`; Màn 3 theo mockup
 - [ ] **Hỏi người dùng trước khi chạy Veo thật lần đầu**
 
 ## Giai đoạn 4 — Âm thanh & ghép
