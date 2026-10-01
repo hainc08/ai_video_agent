@@ -284,3 +284,10 @@ async def test_a_network_error_while_downloading_is_retryable(tmp_path):
         await provider.download(operation_id, tmp_path / "x.mp4")
 
     assert excinfo.value.retryable is True
+
+
+async def test_a_quota_error_points_at_billing():
+    client = FakeVeoClient(start=FakeAPIError(429))
+
+    with pytest.raises(ProviderError, match="thanh toán"):
+        await VeoProvider(client, CONFIG).submit(REQUEST)

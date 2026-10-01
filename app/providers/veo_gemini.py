@@ -31,7 +31,11 @@ def _provider_error(exc: genai_errors.APIError, action: str) -> ProviderError:
     # Class name and status code only: the exception text can quote the request.
     code = getattr(exc, "code", None)
     retryable = code == 429 or (isinstance(code, int) and code >= 500)
-    return ProviderError(f"Veo báo lỗi khi {action} ({type(exc).__name__}, mã {code}).", retryable=retryable)
+    message = f"Veo báo lỗi khi {action} ({type(exc).__name__}, mã {code})."
+    if code == 429:
+        # Veo has no free tier: on a project without billing every request ends here.
+        message += " Đã hết hạn mức, hoặc project của API key chưa bật thanh toán (Veo không có gói miễn phí)."
+    return ProviderError(message, retryable=retryable)
 
 
 class VeoProvider:
