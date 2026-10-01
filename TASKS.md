@@ -34,10 +34,10 @@ Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật d
 - [x] **Hỏi người dùng trước khi chạy Veo thật lần đầu**
 
 ## Giai đoạn 4 — Âm thanh & ghép
-- [ ] `TTSProvider` protocol + 1 provider (hỏi người dùng chọn dịch vụ) + provider giả (im lặng đúng độ dài)
-- [ ] Phụ đề `.ass` từ `subtitle_vi` và thời điểm cảnh, font hỗ trợ tiếng Việt
-- [ ] `assembler/ffmpeg.py`: nối clip, trộn TTS + nhạc nền (ducking), burn phụ đề, logo góc; xuất 1080×1920 H.264
-- [ ] Màn 4: video player, tải MP4/plan.json, caption, số liệu thực
+- [x] `TTSProvider` protocol + 1 provider (hỏi người dùng chọn dịch vụ) + provider giả (im lặng đúng độ dài)
+- [x] Phụ đề `.ass` từ `subtitle_vi` và thời điểm cảnh, font hỗ trợ tiếng Việt
+- [x] `assembler/ffmpeg.py`: nối clip, trộn TTS + nhạc nền (ducking), burn phụ đề, logo góc; xuất 1080×1920 H.264
+- [x] Màn 4: video player, tải MP4/plan.json, caption, số liệu thực
 
 ## Giai đoạn 5 — Ổn định
 - [ ] Chạy tiếp job từ bước lỗi (idempotent)

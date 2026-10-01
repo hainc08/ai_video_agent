@@ -31,6 +31,9 @@ tone chuyên nghiệp, lời thoại tiếng Việt.
 - LLM lập plan: **Gemini API** (`google-genai`, JSON theo `plan.schema.json`) — chủ dự án chốt ngày 01/10/2026
   để chỉ cần một key cho cả kịch bản lẫn video. Claude (Anthropic SDK, tool use) vẫn chọn được bằng
   `LLM_PROVIDER=claude` trong `.env`; các tài liệu cũ ghi "Claude lập plan" hiểu là "LLM lập plan".
+- Giọng đọc: **Edge TTS** (thư viện `edge-tts`, miễn phí, không cần key) — chủ dự án chốt ngày 01/10/2026.
+  Chỉ có hai giọng tiếng Việt (Hoài My nữ, Nam Minh nam). Đây là dịch vụ không chính thức, không có cam kết
+  hoạt động: lỗi phải báo rõ và job chạy tiếp được.
 - Có bước người dùng duyệt plan trước khi gọi Veo (vì Veo tính tiền).
 - Không sinh chữ trong video bằng Veo; chữ/phụ đề làm bằng FFmpeg.
 - Sinh lại clip lỗi tối đa 1 lần/cảnh.
@@ -67,6 +70,7 @@ app/
   agent/
     planner.py         # Claude: idea -> Plan; revise(plan, feedback); rewrite_scene
     plan_rules.py      # quy tắc nghiệp vụ của plan (thời lượng, số từ)
+    finisher.py        # sau khi có clip: giọng đọc -> phụ đề -> ghép final.mp4
     planning.py        # chạy planner ở nền, lưu kết quả vào job
     estimator.py       # ước tính chi phí/thời gian
     runner.py          # điều phối job, checkpoint, retry, SSE events
@@ -75,9 +79,11 @@ app/
     base.py            # VideoProvider, TTSProvider (Protocol)
     veo_gemini.py      # Veo 3.1 qua google-genai
     fake_video.py      # provider giả để dev/test không tốn tiền
-    tts_*.py           # TTS tiếng Việt
+    tts_edge.py        # giọng đọc tiếng Việt qua Edge TTS
+    tts_fake.py        # im lặng đúng độ dài, dùng khi test
   assembler/
-    ffmpeg.py          # ghép clip, audio, phụ đề .ass, nhạc nền, logo
+    ffmpeg.py          # canh độ dài giọng đọc, ghép clip + giọng + nhạc nền + logo, burn phụ đề
+    subtitles.py       # tạo file phụ đề .ass
   templates/           # Jinja2, theo docs/ui-mockups
   static/              # css, htmx
 data/                  # runtime, gitignore
@@ -87,7 +93,8 @@ tests/
 ## Quy tắc làm việc
 
 1. Làm theo `TASKS.md`, hết giai đoạn nào báo lại và chạy test trước khi sang giai đoạn sau.
-2. **Không bao giờ gọi API tốn tiền (Veo, TTS) trong test.** Dùng `fake_video.py` và mock.
+2. **Không bao giờ gọi API tốn tiền (Veo) hay dịch vụ mạng (Gemini, Edge TTS) trong test.** Dùng `fake_video.py`,
+   `tts_fake.py` và mock.
    Chế độ mặc định khi dev: `VIDEO_PROVIDER=fake`.
 3. Trước lần gọi Veo thật đầu tiên, hỏi người dùng xác nhận.
 4. Mỗi bước của runner phải idempotent: bước đã xong (file tồn tại + trạng thái DB) thì bỏ qua khi chạy lại.
