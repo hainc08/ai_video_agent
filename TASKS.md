@@ -3,10 +3,10 @@
 Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật dấu [x], tóm tắt cho người dùng.
 
 ## Giai đoạn 0 — Khung dự án
-- [ ] Tạo cấu trúc thư mục theo CLAUDE.md, `requirements.txt`, `app/config.py` đọc `.env` + `config.yaml`
-- [ ] Kiểm tra FFmpeg/ffprobe có chạy được; báo lỗi rõ ràng nếu thiếu
-- [ ] FastAPI chạy được, trang `/` trả về template trống
-- [ ] SQLModel: `Job`, `Scene`, `CostEntry`; tạo DB SQLite khi khởi động
+- [x] Tạo cấu trúc thư mục theo CLAUDE.md, `requirements.txt`, `app/config.py` đọc `.env` + `config.yaml`
+- [x] Kiểm tra FFmpeg/ffprobe có chạy được; báo lỗi rõ ràng nếu thiếu
+- [x] FastAPI chạy được, trang `/` trả về template trống
+- [x] SQLModel: `Job`, `Scene`, `CostEntry`; tạo DB SQLite khi khởi động
 
 ## Giai đoạn 1 — Planner (Claude)
 - [ ] `app/schemas.py`: Pydantic models khớp `docs/plan.schema.json`

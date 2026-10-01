@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}AI Văn Phòng · Video Agent{% endblock %}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand"><span class="brand-logo">AV</span>AI Văn Phòng · Video Agent</div>
+  <div class="header-meta">Veo 3.1 · Gemini API</div>
+</header>
+{% if ffmpeg_error %}<div class="banner-warn" role="alert">{{ ffmpeg_error }}</div>{% endif %}
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>
