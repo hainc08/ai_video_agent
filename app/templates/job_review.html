@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout">
+<section class="review">
+  {% if job.error %}<div class="warn-box" role="alert">{{ job.error }}</div>{% endif %}
+  <div class="review-head">
+    <div class="eyebrow">PLAN DO CLAUDE ĐỀ XUẤT</div>
+    <h1>{{ job.idea }}</h1>
+    <div class="meta">{{ job.duration_sec }} giây · {{ job.aspect }} · {{ rows|length }} cảnh · Giọng: {{ voice }}</div>
+  </div>
+  <div class="brief">
+    <div class="brief-item"><div class="brief-label">KHÁN GIẢ</div><div class="brief-value">{{ plan.brief.audience }}</div></div>
+    <div class="brief-item"><div class="brief-label">HOOK 3 GIÂY</div><div class="brief-value">{{ plan.brief.hook }}</div></div>
+    <div class="brief-item"><div class="brief-label">THÔNG ĐIỆP</div><div class="brief-value">{{ plan.brief.key_message }}</div></div>
+    <div class="brief-item"><div class="brief-label">CTA</div><div class="brief-value">{{ plan.brief.cta }}</div></div>
+  </div>
+  <div class="scenes">
+    {% for row in rows %}
+    {% set scene = row.scene %}
+    <article class="scene" id="scene-{{ scene.id }}">
+      <div class="scene-no">
+        <div class="scene-title">Cảnh {{ scene.id }}</div>
+        <div class="scene-time">{{ row.time }}</div>
+      </div>
+      <div class="scene-body">
+        <div class="scene-vo">“{{ scene.voiceover_vi }}”</div>
+        <div class="scene-visual">Hình ảnh: {{ scene.visual }}</div>
+        <div class="scene-prompt" role="button" tabindex="0" title="Bấm để xem đủ prompt">{{ scene.veo_prompt_en }}</div>
+        <form class="scene-edit" id="edit-{{ scene.id }}" hidden hx-patch="/api/jobs/{{ job.id }}/scenes/{{ scene.id }}" hx-swap="none">
+          <label>Lời thoại<textarea name="voiceover_vi" rows="2">{{ scene.voiceover_vi }}</textarea></label>
+          <label>Phụ đề<input type="text" name="subtitle_vi" value="{{ scene.subtitle_vi }}"></label>
+          <label>Mô tả hình ảnh<input type="text" name="visual" value="{{ scene.visual }}"></label>
+          <label>Góc máy<input type="text" name="camera" value="{{ scene.camera }}"></label>
+          <label>Prompt Veo (tiếng Anh, tối đa 1.000 ký tự)<textarea class="mono" name="veo_prompt_en" rows="4">{{ scene.veo_prompt_en }}</textarea></label>
+          <label>Thời lượng
+            <select name="duration_sec">
+              {% for seconds in (4, 6, 8) %}<option value="{{ seconds }}"{% if seconds == scene.duration_sec %} selected{% endif %}>{{ seconds }} giây</option>{% endfor %}
+            </select>
+          </label>
+          <div class="edit-actions">
+            <button type="submit" class="btn-outline">Lưu cảnh {{ scene.id }}</button>
+            <button type="button" class="btn-small" data-toggle="edit-{{ scene.id }}">Hủy</button>
+          </div>
+        </form>
+      </div>
+      <div class="scene-actions">
+        <button type="button" class="btn-small" data-toggle="edit-{{ scene.id }}">Sửa</button>
+        <button type="button" class="btn-small" hx-post="/api/jobs/{{ job.id }}/scenes/{{ scene.id }}/rewrite" hx-swap="none" hx-disabled-elt="this">Viết lại</button>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+<aside class="side">
+  <div class="card stack">
+    <div class="card-title">Ước tính trước khi chạy</div>
+    {% if estimate %}
+    <div class="est-row"><span>Tổng thời lượng clip</span><strong>{{ estimate.total_video_sec }} giây</strong></div>
+    <div class="est-row"><span>Số lượt gọi Veo</span><strong>{{ estimate.veo_calls }} (+ tối đa {{ estimate.veo_calls_max - estimate.veo_calls }} lần sinh lại)</strong></div>
+    <div class="est-row"><span>Thời gian dự kiến</span><strong>~{{ estimate.minutes|num(1) }} phút</strong></div>
+    <div class="est-cost"><span>Chi phí dự kiến</span><strong>{{ estimate.cost_usd|num }} USD</strong></div>
+    {% if estimate.cost_usd_max > estimate.cost_usd %}<p class="muted small">Tối đa {{ estimate.cost_usd_max|num }} USD nếu mọi cảnh đều phải sinh lại.</p>{% endif %}
+    <p class="muted small">Trần của bạn: {{ cap }} USD. Agent dừng lại nếu sắp vượt.</p>
+    {% if fake_video %}<p class="muted small">Đang dùng provider giả (VIDEO_PROVIDER=fake) nên không tốn tiền video.</p>{% endif %}
+    {% if estimate.over_cap %}<div class="warn-box" role="alert">Chi phí dự kiến vượt trần {{ cap }} USD. Hãy rút ngắn video hoặc tạo lại với trần cao hơn.</div>{% endif %}
+    {% else %}
+    <div class="warn-box" role="alert">{{ estimate_error }}</div>
+    {% endif %}
+  </div>
+  <form class="card stack" hx-post="/api/jobs/{{ job.id }}/revise" hx-swap="none">
+    <label class="card-title" for="feedback">Góp ý cho Claude</label>
+    <textarea id="feedback" name="feedback" rows="3" required maxlength="2000" placeholder="Ví dụ: hook mạnh hơn, cảnh 3 dùng bảng tính Excel"></textarea>
+    <button type="submit" class="btn-outline">Yêu cầu viết lại plan</button>
+  </form>
+  <button type="button" class="btn-primary btn-block" hx-post="/api/jobs/{{ job.id }}/approve" hx-swap="none" hx-disabled-elt="this"{% if locked %} disabled{% endif %}>Duyệt &amp; tạo video</button>
+  <a class="link-center" href="/?job={{ job.id }}">Quay lại sửa ý tưởng</a>
+  <a class="link-center" href="/api/jobs/{{ job.id }}/plan.json">Tải plan.json</a>
+</aside>
+</div>
+{% endblock %}

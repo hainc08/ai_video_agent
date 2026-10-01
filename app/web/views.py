@@ -14,7 +14,7 @@ from app import jobstore
 from app.agent.estimator import Estimate, PriceNotConfiguredError, estimate
 from app.config import Settings
 from app.models import Job, JobStatus
-from app.options import ASPECTS, DURATIONS, STYLES, VOICES
+from app.options import ASPECTS, DURATIONS, STYLES, VOICES, voice_label
 from app.schemas import Plan
 from app.web.forms import default_form_values
 
@@ -134,4 +134,30 @@ def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]
         ],
         "cost_usd": jobstore.job_cost_usd(session, job.id),
         "estimate": estimated.model_dump() if estimated is not None else None,
+    }
+
+
+def scene_rows(plan: Plan) -> list[dict[str, Any]]:
+    rows = []
+    start = 0
+    for scene in plan.scenes:
+        end = start + scene.duration_sec
+        rows.append({"scene": scene, "time": f"{fmt_clock(start)}–{fmt_clock(end)}"})
+        start = end
+    return rows
+
+
+def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
+    estimated, estimate_error = plan_estimate(settings, job, plan)
+    return {
+        "job": job,
+        "plan": plan,
+        "rows": scene_rows(plan),
+        "voice": voice_label(job.voice),
+        "cap": f"{job.cost_cap_usd:g}",
+        "estimate": estimated,
+        "estimate_error": estimate_error,
+        # The server enforces the same rule in POST /approve; this only disables the button.
+        "locked": estimated is None or estimated.over_cap,
+        "fake_video": settings.secrets.video_provider == "fake",
     }

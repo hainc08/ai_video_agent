@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlmodel import Session
 
 from app import jobstore
@@ -48,3 +48,15 @@ async def list_jobs(session: Session = Depends(get_session)):
 @router.get("/jobs/{job_id}")
 async def get_job(request: Request, job_id: str, session: Session = Depends(get_session)):
     return job_detail(session, request.app.state.settings, job_or_404(session, job_id))
+
+
+@router.get("/jobs/{job_id}/plan.json")
+async def download_plan(job_id: str, session: Session = Depends(get_session)):
+    job = job_or_404(session, job_id)
+    plan = jobstore.load_plan(job)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Job này chưa có plan.")
+    return JSONResponse(
+        plan.to_dict(),
+        headers={"Content-Disposition": f'attachment; filename="plan-{job.id}.json"'},
+    )
