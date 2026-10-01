@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card center-card">
+  <div class="eyebrow">{{ status_label|upper }}</div>
+  <h1>{{ job.idea }}</h1>
+  {% if job.status.value == "generating" %}
+  <p>Plan đã được duyệt.</p>
+  <p class="muted small">Bước sinh video bằng Veo chưa được xây dựng (Giai đoạn 3), nên job dừng ở đây.</p>
+  {% endif %}
+  <a class="link-center" href="/">Tạo video mới</a>
+</section>
+{% endblock %}

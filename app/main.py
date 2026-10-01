@@ -15,7 +15,7 @@ from app.agent.planning import PlannerFactory, PlanningService
 from app.assembler.ffmpeg import FFmpegNotFoundError, check_binaries
 from app.config import Settings, load_settings
 from app.db import init_db, make_engine
-from app.web import pages
+from app.web import api, pages
 
 APP_DIR = Path(__file__).resolve().parent
 log = logging.getLogger("app")
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None, planner_factory: PlannerFactory
     app = FastAPI(title="AI Video Agent", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
     app.include_router(pages.router)
+    app.include_router(api.router)
     return app
 
 

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card center-card">
+  <h1>Không tạo được video</h1>
+  <p>{{ job.idea }}</p>
+  <p class="muted small">Bước lỗi: {% if job.failed_step == "planning" %}Lập plan{% else %}{{ job.failed_step or "không rõ" }}{% endif %}</p>
+  <div class="warn-box" role="alert">{{ job.error or "Không rõ nguyên nhân." }}</div>
+  <a class="btn-primary" href="/?job={{ job.id }}">Quay lại sửa ý tưởng</a>
+</section>
+{% endblock %}

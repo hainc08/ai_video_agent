@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card center-card" hx-get="/jobs/{{ job.id }}" hx-trigger="every 2s" hx-select="#shell" hx-target="#shell" hx-swap="outerHTML">
+  <div class="spinner" aria-hidden="true"></div>
+  <h1>{% if job.plan_version %}Claude đang viết lại plan…{% else %}Claude đang lập plan…{% endif %}</h1>
+  <p>{{ job.idea }}</p>
+  <p class="muted small">Thường mất dưới một phút. Trang sẽ tự cập nhật.</p>
+</section>
+{% endblock %}

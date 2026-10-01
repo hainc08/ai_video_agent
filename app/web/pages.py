@@ -6,8 +6,9 @@ from fastapi.responses import HTMLResponse
 from sqlmodel import Session
 
 from app import jobstore
+from app.models import JobStatus
 from app.web.forms import default_form_values
-from app.web.views import get_session, render_index
+from app.web.views import STATUS_LABELS, current_step, get_session, render, render_index
 
 router = APIRouter()
 
@@ -27,3 +28,16 @@ async def index(request: Request, job: str | None = None, session: Session = Dep
             "cost_cap_usd": f"{source.cost_cap_usd:g}",
         }
     return render_index(request, session, values=values)
+
+
+@router.get("/jobs/{job_id}", response_class=HTMLResponse)
+async def job_page(request: Request, job_id: str, session: Session = Depends(get_session)):
+    job = jobstore.get_job(session, job_id)
+    if job is None:
+        return render(request, "not_found.html", {}, step=1, status_code=404)
+    step = current_step(job)
+    if job.status == JobStatus.planning:
+        return render(request, "job_planning.html", {"job": job}, step=step)
+    if job.status == JobStatus.failed:
+        return render(request, "job_failed.html", {"job": job}, step=step)
+    return render(request, "job_status.html", {"job": job, "status_label": STATUS_LABELS[job.status]}, step=step)

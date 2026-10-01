@@ -11,8 +11,11 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
 from app import jobstore
+from app.agent.estimator import Estimate, PriceNotConfiguredError, estimate
+from app.config import Settings
 from app.models import Job, JobStatus
 from app.options import ASPECTS, DURATIONS, STYLES, VOICES
+from app.schemas import Plan
 from app.web.forms import default_form_values
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -97,3 +100,38 @@ def render_index(
         "recent": [job_summary(job) for job in jobstore.list_recent_jobs(session)],
     }
     return render(request, "index.html", context, step=1, status_code=status_code)
+
+
+def plan_estimate(settings: Settings, job: Job, plan: Plan) -> tuple[Estimate | None, str | None]:
+    try:
+        result = estimate(
+            plan,
+            settings.config,
+            video_provider=settings.secrets.video_provider,
+            cap_usd=job.cost_cap_usd,
+        )
+    except PriceNotConfiguredError as exc:
+        return None, str(exc)
+    return result, None
+
+
+def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]:
+    plan = jobstore.load_plan(job)
+    estimated = plan_estimate(settings, job, plan)[0] if plan is not None else None
+    return job_summary(job) | {
+        "duration_sec": job.duration_sec,
+        "aspect": job.aspect,
+        "voice": job.voice,
+        "style": job.style,
+        "cost_cap_usd": job.cost_cap_usd,
+        "plan_version": job.plan_version,
+        "failed_step": job.failed_step,
+        "error": job.error,
+        "plan": plan.to_dict() if plan is not None else None,
+        "scenes": [
+            {"scene_no": scene.scene_no, "status": scene.status.value, "attempts": scene.attempts}
+            for scene in jobstore.list_scenes(session, job.id)
+        ],
+        "cost_usd": jobstore.job_cost_usd(session, job.id),
+        "estimate": estimated.model_dump() if estimated is not None else None,
+    }
