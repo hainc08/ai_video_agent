@@ -31,7 +31,7 @@ Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật d
 - [x] `runner.py`: chạy song song (Semaphore), timeout, backoff, ghi `CostEntry`, dừng khi chạm trần
 - [x] `qc.py`: ffprobe kiểm tra tỉ lệ, thời lượng; lỗi → `planner.rewrite_scene` → sinh lại 1 lần
 - [x] SSE `/api/jobs/{id}/events`; Màn 3 theo mockup
-- [ ] **Hỏi người dùng trước khi chạy Veo thật lần đầu**
+- [x] **Hỏi người dùng trước khi chạy Veo thật lần đầu**
 
 ## Giai đoạn 4 — Âm thanh & ghép
 - [ ] `TTSProvider` protocol + 1 provider (hỏi người dùng chọn dịch vụ) + provider giả (im lặng đúng độ dài)
