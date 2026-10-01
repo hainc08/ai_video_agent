@@ -1,11 +1,15 @@
 import json
 import shutil
+from contextlib import ExitStack
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.config import PROJECT_ROOT, load_settings
 from app.db import init_db, make_engine
+from app.main import create_app
+from tests.fakes import FakePlanner
 
 _ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -52,3 +56,16 @@ def engine(tmp_path):
 def session(engine):
     with Session(engine) as session:
         yield session
+
+
+@pytest.fixture
+def start_app(settings):
+    """start_app(*planner_outcomes) -> (client, planner); every started app is closed after the test."""
+    with ExitStack() as stack:
+
+        def start(*outcomes):
+            planner = FakePlanner(*outcomes)
+            app = create_app(settings, planner_factory=lambda: planner)
+            return stack.enter_context(TestClient(app)), planner
+
+        yield start

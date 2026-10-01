@@ -6,13 +6,23 @@
 <title>{% block title %}AI Văn Phòng · Video Agent{% endblock %}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+<script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
+<script src="{{ url_for('static', path='app.js') }}" defer></script>
 </head>
 <body>
+<div id="shell">
 <header class="site-header">
-  <div class="brand"><span class="brand-logo">AV</span>AI Văn Phòng · Video Agent</div>
+  <a class="brand" href="/"><span class="brand-logo">AV</span>AI Văn Phòng · Video Agent</a>
+  <ol class="steps" aria-label="Tiến trình">
+    {% for number, label in steps %}
+    <li class="step{% if number < step %} done{% elif number == step %} current{% endif %}"><span class="step-dot">{% if number < step %}✓{% else %}{{ number }}{% endif %}</span>{{ label }}</li>
+    {% endfor %}
+  </ol>
   <div class="header-meta">Veo 3.1 · Gemini API</div>
 </header>
 {% if ffmpeg_error %}<div class="banner-warn" role="alert">{{ ffmpeg_error }}</div>{% endif %}
+<div id="flash" class="flash" role="alert" hidden></div>
 <main>{% block content %}{% endblock %}</main>
+</div>
 </body>
 </html>

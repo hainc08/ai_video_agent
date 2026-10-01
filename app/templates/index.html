@@ -1,2 +1,95 @@
 {% extends "base.html" %}
-{% block content %}{% endblock %}
+{% block content %}
+<div class="layout">
+<section class="card card-form">
+  <div class="card-head">
+    <h1>Bạn muốn làm video về điều gì?</h1>
+    <p class="muted">Nhập 1–3 câu. Agent sẽ tự viết kịch bản, chia cảnh và viết prompt cho Veo.</p>
+  </div>
+  <form method="post" action="/api/jobs" class="idea-form">
+    <div class="field">
+      <label for="idea">Ý tưởng</label>
+      <textarea id="idea" name="idea" rows="4" required minlength="3" maxlength="1000">{{ values.idea }}</textarea>
+      {% if errors.idea %}<p class="field-error">{{ errors.idea }}</p>{% endif %}
+    </div>
+    <div class="field-grid">
+      <fieldset class="field">
+        <legend>Thời lượng</legend>
+        <div class="segmented">
+          {% for duration in durations %}
+          <input type="radio" name="duration_sec" id="duration-{{ duration }}" value="{{ duration }}"{% if duration == values.duration_sec %} checked{% endif %}>
+          <label for="duration-{{ duration }}">{{ duration }} giây</label>
+          {% endfor %}
+        </div>
+        {% if errors.duration_sec %}<p class="field-error">{{ errors.duration_sec }}</p>{% endif %}
+      </fieldset>
+      <fieldset class="field">
+        <legend>Tỉ lệ khung hình</legend>
+        <div class="segmented">
+          {% for aspect in aspects %}
+          <input type="radio" name="aspect" id="aspect-{{ loop.index }}" value="{{ aspect }}"{% if aspect == values.aspect %} checked{% endif %}>
+          <label for="aspect-{{ loop.index }}">{{ aspect }}</label>
+          {% endfor %}
+        </div>
+        {% if errors.aspect %}<p class="field-error">{{ errors.aspect }}</p>{% endif %}
+      </fieldset>
+      <div class="field">
+        <label for="voice">Giọng đọc</label>
+        <select id="voice" name="voice">
+          {% for key, label in voices.items() %}
+          <option value="{{ key }}"{% if key == values.voice %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.voice %}<p class="field-error">{{ errors.voice }}</p>{% endif %}
+      </div>
+      <div class="field">
+        <label for="style">Phong cách hình ảnh</label>
+        <select id="style" name="style">
+          {% for key, label in styles.items() %}
+          <option value="{{ key }}"{% if key == values.style %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.style %}<p class="field-error">{{ errors.style }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="form-foot">
+      <div class="field">
+        <div class="cap">
+          <label for="cap">Trần chi phí</label>
+          <input id="cap" name="cost_cap_usd" value="{{ values.cost_cap_usd }}" inputmode="decimal">
+          <span class="muted">USD / video</span>
+        </div>
+        {% if errors.cost_cap_usd %}<p class="field-error">{{ errors.cost_cap_usd }}</p>{% endif %}
+      </div>
+      <button type="submit" class="btn-primary">Lập kế hoạch →</button>
+    </div>
+  </form>
+</section>
+<aside class="side">
+  <div class="card stack">
+    <div class="card-title">Agent sẽ làm gì</div>
+    <ol class="agent-steps">
+      <li>Claude phân tích ý tưởng, viết kịch bản và chia cảnh</li>
+      <li>Bạn duyệt plan và chi phí dự kiến — chưa tốn tiền video</li>
+      <li>Veo sinh từng clip, tự kiểm tra và sinh lại cảnh lỗi</li>
+      <li>Lồng giọng đọc, phụ đề, nhạc nền rồi xuất MP4</li>
+    </ol>
+  </div>
+  <div class="card stack">
+    <div class="card-title">Video gần đây</div>
+    {% if recent %}
+    <ul class="recent">
+      {% for item in recent %}
+      <li><a href="/jobs/{{ item.id }}"><span class="recent-idea">{{ item.idea }}</span><span class="badge badge-{{ item.status }}">{{ item.status_label }}</span></a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty">
+      <strong>Chưa có video nào</strong>
+      <span class="muted small">Video bạn tạo sẽ xuất hiện ở đây</span>
+    </div>
+    {% endif %}
+  </div>
+</aside>
+</div>
+{% endblock %}

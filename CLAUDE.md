@@ -50,12 +50,21 @@ Nếu thấy lý do chính đáng để đổi stack, hỏi người dùng trư�
 
 ```
 app/
-  main.py              # FastAPI app, routes HTML + API
+  main.py              # FastAPI app factory (lifespan, routers)
+  options.py           # lựa chọn trên form: thời lượng, tỉ lệ, giọng, phong cách
+  jobstore.py          # lưu job, phiên bản plan, chi phí
+  web/
+    pages.py           # routes HTML: /, /jobs/{id}
+    api.py             # routes /api/jobs...
+    views.py           # Jinja, view model
+    forms.py           # đọc & kiểm tra form ý tưởng
   config.py            # đọc .env + config.yaml
   models.py            # SQLModel: Job, Scene, CostEntry
   schemas.py           # Pydantic: Plan, Scene, Brief (khớp docs/plan.schema.json)
   agent/
     planner.py         # Claude: idea -> Plan; revise(plan, feedback); rewrite_scene
+    plan_rules.py      # quy tắc nghiệp vụ của plan (thời lượng, số từ)
+    planning.py        # chạy planner ở nền, lưu kết quả vào job
     estimator.py       # ước tính chi phí/thời gian
     runner.py          # điều phối job, checkpoint, retry, SSE events
     qc.py              # kiểm tra clip (tồn tại, tỉ lệ, thời lượng qua ffprobe)
