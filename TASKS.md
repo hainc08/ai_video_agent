@@ -9,13 +9,13 @@ Làm theo thứ tự. Cuối mỗi giai đoạn: chạy `pytest`, cập nhật d
 - [x] SQLModel: `Job`, `Scene`, `CostEntry`; tạo DB SQLite khi khởi động
 
 ## Giai đoạn 1 — Planner (Claude)
-- [ ] `app/schemas.py`: Pydantic models khớp `docs/plan.schema.json`
-- [ ] `planner.create_plan(idea, options)`: gọi Claude với tool `submit_plan` (input_schema = plan schema),
+- [x] `app/schemas.py`: Pydantic models khớp `docs/plan.schema.json`
+- [x] `planner.create_plan(idea, options)`: gọi Claude với tool `submit_plan` (input_schema = plan schema),
       system prompt từ `prompts/planner_system.md`
-- [ ] Validate kết quả; nếu sai (tổng thời lượng lệch, số từ lệch > 10%) → gửi lỗi lại cho Claude sửa, tối đa 2 lần
-- [ ] `planner.revise(plan, feedback)` và `planner.rewrite_scene(plan, scene_id, feedback)`
-- [ ] `estimator.estimate(plan, config)` → chi phí USD và phút, đọc đơn giá từ config
-- [ ] Test với Claude được mock (fixture JSON mẫu)
+- [x] Validate kết quả; nếu sai (tổng thời lượng lệch, số từ lệch > 10%) → gửi lỗi lại cho Claude sửa, tối đa 2 lần
+- [x] `planner.revise(plan, feedback)` và `planner.rewrite_scene(plan, scene_id, feedback)`
+- [x] `estimator.estimate(plan, config)` → chi phí USD và phút, đọc đơn giá từ config
+- [x] Test với Claude được mock (fixture JSON mẫu)
 
 ## Giai đoạn 2 — Giao diện màn 1 & 2
 - [ ] Template base + header 4 bước theo `docs/UI_SPEC.md` và mockup
