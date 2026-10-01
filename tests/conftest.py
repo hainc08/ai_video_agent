@@ -9,7 +9,7 @@ from sqlmodel import Session
 from app.config import PROJECT_ROOT, load_settings
 from app.db import init_db, make_engine
 from app.main import create_app
-from tests.fakes import FakePlanner
+from tests.fakes import FakePlanner, HeldProvider
 
 _ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -61,12 +61,17 @@ def session(engine):
 
 @pytest.fixture
 def start_app(settings):
-    """start_app(*planner_outcomes) -> (client, planner); every started app is closed after the test."""
+    """start_app(*planner_outcomes, provider=None) -> (client, planner).
+
+    Every started app is closed after the test. Without `provider`, approved jobs stay
+    `generating` (HeldProvider) so tests see a stable state and no FFmpeg is needed.
+    """
     with ExitStack() as stack:
 
-        def start(*outcomes):
+        def start(*outcomes, provider=None):
             planner = FakePlanner(*outcomes)
-            app = create_app(settings, planner_factory=lambda: planner)
+            video = provider or HeldProvider()
+            app = create_app(settings, planner_factory=lambda: planner, provider_factory=lambda: video)
             return stack.enter_context(TestClient(app)), planner
 
         yield start

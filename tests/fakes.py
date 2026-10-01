@@ -1,4 +1,7 @@
+import asyncio
+
 from app.agent.planner import PlannerResult
+from app.providers.base import ContentFilteredError, PollResult
 from app.schemas import Plan
 
 
@@ -36,3 +39,64 @@ class FakePlanner:
     async def rewrite_scene(self, plan, scene_id, feedback=""):
         self.calls.append(("rewrite_scene", plan, scene_id, feedback))
         return self._next()
+
+
+class ScriptedProvider:
+    """A provider whose every attempt is scripted per scene.
+
+    Outcomes: "ok", "bad" (clip fails QC), "filtered", "op_failed", "timeout" (never finishes),
+    or an exception instance raised by submit.
+    """
+
+    name = "veo"
+
+    def __init__(self, script=None, *, price=0.1, aspects=("9:16", "16:9")):
+        self.script = {scene: list(outcomes) for scene, outcomes in (script or {}).items()}
+        self.price_usd_per_second = price
+        self.supported_aspects = frozenset(aspects)
+        self.submitted = []  # (scene_no, prompt) of every accepted submit
+        self.submit_attempts = 0
+        self._operations = {}
+        self._polls = {}
+        self.active = 0
+        self.max_active = 0
+
+    async def submit(self, request):
+        self.submit_attempts += 1
+        outcomes = self.script.get(request.scene_no, [])
+        outcome = outcomes.pop(0) if outcomes else "ok"
+        if isinstance(outcome, Exception):
+            raise outcome
+        operation_id = f"op-{len(self.submitted) + 1}"
+        self.submitted.append((request.scene_no, request.prompt))
+        self._operations[operation_id] = outcome
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        return operation_id
+
+    async def poll(self, operation_id):
+        await asyncio.sleep(0)
+        outcome = self._operations[operation_id]
+        polls = self._polls[operation_id] = self._polls.get(operation_id, 0) + 1
+        if outcome == "timeout" or polls < 3:
+            return PollResult("running")
+        if outcome == "filtered":
+            self.active -= 1
+            raise ContentFilteredError("Prompt bị bộ lọc an toàn của Veo chặn: violence")
+        if outcome == "op_failed":
+            self.active -= 1
+            return PollResult("failed", "Veo không sinh được clip: internal error")
+        return PollResult("done")
+
+    async def download(self, operation_id, path):
+        self.active -= 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"bad" if self._operations[operation_id] == "bad" else b"ok")
+
+
+class HeldProvider(ScriptedProvider):
+    """Accepts nothing: every submit waits forever, so a job stays `generating` until shutdown."""
+
+    async def submit(self, request):
+        self.submit_attempts += 1
+        await asyncio.Event().wait()

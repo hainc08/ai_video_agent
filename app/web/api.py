@@ -2,16 +2,25 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 from sqlmodel import Session
+from sse_starlette.sse import EventSourceResponse
 
 from app import jobstore
 from app.agent.plan_rules import find_issues
-from app.models import Job, JobStatus
+from app.models import Job, JobStatus, SceneStatus
 from app.schemas import Plan
 from app.web.forms import parse_job_form
-from app.web.views import fmt_number, get_session, job_detail, job_summary, plan_estimate, render_index
+from app.web.views import (
+    aspect_problem,
+    fmt_number,
+    get_session,
+    job_detail,
+    job_summary,
+    plan_estimate,
+    render_index,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -170,5 +179,51 @@ async def approve_plan(request: Request, job_id: str, session: Session = Depends
             detail=f"Chi phí dự kiến {fmt_number(estimated.cost_usd)} USD vượt trần "
             f"{job.cost_cap_usd:g} USD của video này.",
         )
+    problem = aspect_problem(request.app.state.settings, job)
+    if problem is not None:
+        raise HTTPException(status_code=409, detail=problem)
     jobstore.mark_approved(session, job)
+    jobstore.append_log(request.app.state.settings.data_dir, job.id, "gate", "người dùng đã duyệt plan")
+    generation = request.app.state.generation
+    generation.spawn(generation.run(job.id))
     return _changed(request, session, job)
+
+
+@router.get("/jobs/{job_id}/clips/{scene_no}")
+async def get_clip(request: Request, job_id: str, scene_no: int, session: Session = Depends(get_session)):
+    job = job_or_404(session, job_id)
+    scene = jobstore.get_scene(session, job.id, scene_no)
+    path = jobstore.clip_path(request.app.state.settings.data_dir, job.id, scene_no)
+    if scene is None or scene.status != SceneStatus.approved or not path.exists():
+        raise HTTPException(status_code=404, detail="Cảnh này chưa có clip.")
+    return FileResponse(path, media_type="video/mp4")
+
+
+@router.get("/jobs/{job_id}/events")
+async def job_events(request: Request, job_id: str, session: Session = Depends(get_session)):
+    """Server-sent events: `update` whenever the job changed, `end` when there is nothing more to wait for.
+
+    Events carry no data: the page re-reads the state it shows from the server, so a client
+    that reconnects or misses an event is never out of date.
+    """
+    # Subscribe before reading the job, so an event published in between is not lost.
+    subscription = request.app.state.hub.subscribe(job_id)
+    try:
+        job = job_or_404(session, job_id)
+    except HTTPException:
+        subscription.cancel()
+        raise
+    running = job.status == JobStatus.generating
+
+    async def stream():
+        try:
+            yield {"event": "update", "data": "{}"}
+            if not running:
+                yield {"event": "end", "data": "{}"}
+                return
+            async for event in subscription:
+                yield {"event": event["type"], "data": "{}"}
+        finally:
+            subscription.cancel()
+
+    return EventSourceResponse(stream())

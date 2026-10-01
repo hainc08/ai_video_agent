@@ -157,7 +157,9 @@ def test_job_detail_includes_plan_scenes_and_estimate(start_app, settings, plan_
     assert body["status"] == "awaiting_approval"
     assert body["plan_version"] == 1
     assert body["plan"] == plan_dict
-    assert body["scenes"] == [{"scene_no": n, "status": "planned", "attempts": 0} for n in range(1, 6)]
+    assert [(s["scene_no"], s["status"], s["attempts"]) for s in body["scenes"]] == [
+        (n, "planned", 0) for n in range(1, 6)
+    ]
     assert body["estimate"]["total_video_sec"] == 30
     assert body["estimate"]["cost_usd"] == 0
     assert body["error"] is None

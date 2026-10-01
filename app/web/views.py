@@ -13,8 +13,9 @@ from sqlmodel import Session
 from app import jobstore
 from app.agent.estimator import Estimate, PriceNotConfiguredError, estimate
 from app.config import Settings
-from app.models import Job, JobStatus
+from app.models import Job, JobStatus, Scene, SceneStatus
 from app.options import ASPECTS, DURATIONS, STYLES, VOICES, voice_label
+from app.providers import supported_aspects
 from app.schemas import Plan
 from app.web.forms import default_form_values
 
@@ -115,6 +116,24 @@ def plan_estimate(settings: Settings, job: Job, plan: Plan) -> tuple[Estimate | 
     return result, None
 
 
+def aspect_problem(settings: Settings, job: Job) -> str | None:
+    """Why this job's aspect ratio cannot be generated with the selected provider, if it cannot."""
+    supported = supported_aspects(settings)
+    if job.aspect in supported:
+        return None
+    names = " và ".join(aspect for aspect in ASPECTS if aspect in supported)
+    return (
+        f"Veo chỉ hỗ trợ tỉ lệ {names}, không có {job.aspect}. "
+        "Hãy quay lại sửa ý tưởng và chọn một trong các tỉ lệ đó."
+    )
+
+
+def clip_url(job_id: str, scene: Scene) -> str | None:
+    if scene.status != SceneStatus.approved:
+        return None
+    return f"/api/jobs/{job_id}/clips/{scene.scene_no}"
+
+
 def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]:
     plan = jobstore.load_plan(job)
     estimated = plan_estimate(settings, job, plan)[0] if plan is not None else None
@@ -129,9 +148,16 @@ def job_detail(session: Session, settings: Settings, job: Job) -> dict[str, Any]
         "error": job.error,
         "plan": plan.to_dict() if plan is not None else None,
         "scenes": [
-            {"scene_no": scene.scene_no, "status": scene.status.value, "attempts": scene.attempts}
+            {
+                "scene_no": scene.scene_no,
+                "status": scene.status.value,
+                "attempts": scene.attempts,
+                "error": scene.error,
+                "clip_url": clip_url(job.id, scene),
+            }
             for scene in jobstore.list_scenes(session, job.id)
         ],
+        "log": jobstore.read_log(settings.data_dir, job.id, limit=50),
         "cost_usd": jobstore.job_cost_usd(session, job.id),
         "estimate": estimated.model_dump() if estimated is not None else None,
     }
@@ -149,6 +175,7 @@ def scene_rows(plan: Plan) -> list[dict[str, Any]]:
 
 def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
     estimated, estimate_error = plan_estimate(settings, job, plan)
+    aspect_error = aspect_problem(settings, job)
     return {
         "job": job,
         "plan": plan,
@@ -158,6 +185,7 @@ def review_context(settings: Settings, job: Job, plan: Plan) -> dict[str, Any]:
         "estimate": estimated,
         "estimate_error": estimate_error,
         # The server enforces the same rule in POST /approve; this only disables the button.
-        "locked": estimated is None or estimated.over_cap,
+        "locked": estimated is None or estimated.over_cap or aspect_error is not None,
+        "aspect_error": aspect_error,
         "fake_video": settings.secrets.video_provider == "fake",
     }

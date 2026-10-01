@@ -66,6 +66,7 @@
     {% else %}
     <div class="warn-box" role="alert">{{ estimate_error }}</div>
     {% endif %}
+    {% if aspect_error %}<div class="warn-box" role="alert">{{ aspect_error }}</div>{% endif %}
   </div>
   <form class="card stack" hx-post="/api/jobs/{{ job.id }}/revise" hx-swap="none" hx-disabled-elt="find button">
     <label class="card-title" for="feedback">Góp ý cho AI</label>

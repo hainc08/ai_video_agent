@@ -8,6 +8,15 @@ from app.providers.fake_video import FakeVideoProvider
 _REQUEST_TIMEOUT_MS = 120_000
 
 
+def supported_aspects(settings: Settings) -> frozenset[str]:
+    """Aspect ratios the selected provider can render, known without building it (no key needed)."""
+    if settings.secrets.video_provider == "fake":
+        return FakeVideoProvider.supported_aspects
+    from app.providers.veo_gemini import VeoProvider
+
+    return VeoProvider.supported_aspects
+
+
 def build_video_provider(settings: Settings) -> VideoProvider:
     if settings.secrets.video_provider == "fake":
         return FakeVideoProvider(settings.config.assembler.ffmpeg_path)
